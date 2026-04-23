@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PNU tACS Controller</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        /* Professional Dark Mode Styling */
+        body { font-family: sans-serif; background: #121212; color: white; text-align: center; padding: 20px; }
+        .card { background: #1e1e1e; border-radius: 15px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); max-width: 400px; margin: auto; }
+        button { width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        
+        .btn-connect { background: #007bff; color: white; }
+        .btn-mode1 { background: #28a745; color: white; } /* Green for LED */
+        .btn-mode2 { background: #17a2b8; color: white; } /* Blue for Load */
+        .btn-stop { background: #dc3545; color: white; padding: 25px; font-size: 20px; } /* Red for STOP */
+        
+        button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #status { color: #aaa; margin-bottom: 20px; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>tACS Control Panel</h2>
+        <div id="status">Status: Disconnected</div>
+        
+        <button class="btn-connect" id="connectBtn">1. SEARCH FOR XIAO</button>
+        <hr style="border: 0.5px solid #333; margin: 20px 0;">
+        
+        <button class="btn-mode1" id="mode1Btn" disabled>MODE 1: LEDs</button>
+        <button class="btn-mode2" id="mode2Btn" disabled>MODE 2: 4.7k load</button>
+        <button class="btn-stop" id="stopBtn" disabled>STOP</button>
+    </div>
+
+    <script>
+        // --- CONFIGURATION: Match these to your Arduino Code ---
+        const SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214'; // Example UUID
+        const CHARACTERISTIC_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214'; 
+
+        let tacsCharacteristic;
+        let device;
+
+        const connectBtn = document.getElementById('connectBtn');
+        const statusLbl = document.getElementById('status');
+        const buttons = [document.getElementById('mode1Btn'), document.getElementById('mode2Btn'), document.getElementById('stopBtn')];
+
+        // 1. Connection Logic
+        connectBtn.addEventListener('click', async () => {
+            try {
+                statusLbl.innerText = "Status: Searching...";
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'PNU_tACS_Sense' }],
+                    optionalServices: [SERVICE_UUID]
+                });
+
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                tacsCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+
+                statusLbl.innerText = "Status: Connected to " + device.name;
+                buttons.forEach(btn => btn.disabled = false);
+                connectBtn.style.display = "none"; // Hide connect button once active
+            } catch (error) {
+                statusLbl.innerText = "Error: " + error;
+            }
+        });
+
+        // 2. Control Logic (Sending Bytes)
+        async function sendCommand(value) {
+            if (!tacsCharacteristic) return;
+            try {
+                // We send a single byte (Uint8)
+                const data = Uint8Array.of(value);
+                await tacsCharacteristic.writeValue(data);
+                console.log("Sent: " + value);
+            } catch (error) {
+                statusLbl.innerText = "Send Error: " + error;
+            }
+        }
+
+        document.getElementById('mode1Btn').addEventListener('click', () => sendCommand(1));
+        document.getElementById('mode2Btn').addEventListener('click', () => sendCommand(2));
+        document.getElementById('stopBtn').addEventListener('click', () => sendCommand(0));
+    </script>
+</body>
+</html>
