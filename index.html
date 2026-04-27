@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PNU tACS Lab Controller</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #121212; color: white; text-align: center; padding: 20px; }
+        .card { background: #1e1e1e; border-radius: 20px; padding: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 400px; margin: auto; }
+        button { width: 100%; padding: 20px; margin: 10px 0; border: none; border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .btn-connect { background: #3498db; color: white; }
+        .btn-mode { background: #2ecc71; color: white; } 
+        .btn-stop { background: #e74c3c; color: white; margin-top: 30px; }
+        button:active { transform: scale(0.98); opacity: 0.8; }
+        button:disabled { background: #333; color: #666; cursor: not-allowed; }
+        #status { color: #00ff00; margin-bottom: 20px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>PNU tACS Controller</h2>
+        <div id="status">Status: Not Connected</div>
+        <button class="btn-connect" id="connectBtn">PAIR WITH XIAO</button>
+        <div id="controls" style="display: none;">
+            <button class="btn-mode" id="ledBtn">START LED TEST (Mode 1)</button>
+            <button class="btn-stop" id="stopBtn">STOP</button>
+        </div>
+    </div>
+    <script>
+        const SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214';
+        const CHARACTERISTIC_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
+        let controlChar;
+        const connectBtn = document.getElementById('connectBtn');
+        const statusLbl = document.getElementById('status');
+        const controlDiv = document.getElementById('controls');
+
+        connectBtn.addEventListener('click', async () => {
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'PNU_tACS_Sense' }],
+                    optionalServices: [SERVICE_UUID]
+                });
+                statusLbl.innerText = "Connecting...";
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                controlChar = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                statusLbl.innerText = "CONNECTED";
+                connectBtn.style.display = "none";
+                controlDiv.style.display = "block";
+            } catch (err) {
+                statusLbl.innerText = "Error: " + err;
+            }
+        });
+
+        async function sendMode(val) {
+            if (!controlChar) return;
+            try {
+                await controlChar.writeValue(Uint8Array.of(val));
+            } catch (err) {
+                alert("Communication Lost!");
+            }
+        }
+        document.getElementById('ledBtn').addEventListener('click', () => sendMode(1));
+        document.getElementById('stopBtn').addEventListener('click', () => sendMode(0));
+    </script>
+</body>
+</html>
