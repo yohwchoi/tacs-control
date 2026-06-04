@@ -58,14 +58,20 @@
             outline: none;
         }
         input[type="number"]:focus { border-color: #f39c12; }
+        input[type="number"]:disabled { background: #1a1a1a; color: #555; border-color: #222; }
+        
         .btn-connect { background: #3498db; color: white; }
         .btn-mode { background: #2ecc71; color: white; } 
         .btn-stim { background: #9b59b6; color: white; } 
+        .btn-boost-mode { background: #2980b9; color: white; } /* Blue for Mode 3 activation */
         .btn-send { background: #f39c12; color: white; width: 60%; margin: 0; }
+        .btn-send:disabled { background: #333; color: #666; cursor: not-allowed; }
         .btn-stop { background: #e74c3c; color: white; margin-top: 25px; } 
+        
         button:active { transform: scale(0.98); opacity: 0.8; }
         button:disabled { background: #333; color: #666; cursor: not-allowed; }
         #status { color: #00ff00; margin-bottom: 20px; font-weight: bold; }
+        
         .accordion {
             background: #252525;
             color: #999;
@@ -114,11 +120,12 @@
             <div class="section-title">Stimulation Controller</div>
             <button class="btn-mode" id="ledBtn">START LED TEST (Mode 1)</button>
             <button class="btn-stim" id="stimBtn">START 10kohm TEST (Mode 2)</button>
+            <button class="btn-boost-mode" id="boostModeBtn">START BOOST CONVERTER TEST (Mode 3)</button>
             
-            <div class="section-title">Boost Converter Power Rail</div>
+            <div class="section-title" id="boostSectionTitle">Boost Converter Power Rail (Locked)</div>
             <div class="input-group">
-                <input type="number" id="stepInput" min="0" max="31" value="0">
-                <button class="btn-send" id="sendBtn">SEND STEP</button>
+                <input type="number" id="stepInput" min="0" max="31" value="0" disabled>
+                <button class="btn-send" id="sendBtn" disabled>SEND STEP</button>
             </div>
 
             <button class="accordion" id="accordionBtn">📋 View Step-to-Voltage Chart <span>▼</span></button>
@@ -151,16 +158,17 @@
         let tacsControlChar;
         let boostVoltageChar;
 
-        const connectBtn = document.getElementById('connectBtn');
-        const statusLbl  = document.getElementById('status');
-        const controlDiv = document.getElementById('controls');
-        const stepInput  = document.getElementById('stepInput');
-        const sendBtn    = document.getElementById('sendBtn');
-        const stopBtn    = document.getElementById('stopBtn');
+        const connectBtn   = document.getElementById('connectBtn');
+        const statusLbl    = document.getElementById('status');
+        const controlDiv   = document.getElementById('controls');
+        const stepInput    = document.getElementById('stepInput');
+        const sendBtn      = document.getElementById('sendBtn');
+        const stopBtn      = document.getElementById('stopBtn');
+        const boostModeBtn = document.getElementById('boostModeBtn');
+        const boostTitle   = document.getElementById('boostSectionTitle');
 
         connectBtn.addEventListener('click', async () => {
             try {
-                // Now filters and local names match perfectly on 'PNU_tACS_Sense'
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'PNU_tACS_Sense' }],
                     optionalServices: [TACS_SERVICE_UUID, BOOST_SERVICE_UUID]
@@ -178,6 +186,8 @@
                 statusLbl.innerText = "CONNECTED (ALL SERVICES READY)";
                 connectBtn.style.display = "none";
                 controlDiv.style.display = "block";
+                
+                lockBoostInterface(); // Start with the boost input locked until Mode 3 is pressed
             } catch (err) {
                 statusLbl.innerText = "Error: " + err;
                 console.error(err);
@@ -189,6 +199,12 @@
             try {
                 await tacsControlChar.writeValue(Uint8Array.of(val));
                 console.log("Sent Mode: " + val);
+                
+                if (val === 3) {
+                    unlockBoostInterface();
+                } else {
+                    lockBoostInterface();
+                }
             } catch (err) { handleDisconnect(); }
         }
 
@@ -202,6 +218,20 @@
             } catch (err) { handleDisconnect(); }
         }
 
+        function lockBoostInterface() {
+            stepInput.disabled = true;
+            sendBtn.disabled = true;
+            boostTitle.innerText = "Boost Converter Power Rail (Locked)";
+            boostTitle.style.color = "#888";
+        }
+
+        function unlockBoostInterface() {
+            stepInput.disabled = false;
+            sendBtn.disabled = false;
+            boostTitle.innerText = "Boost Converter Power Rail (Active)";
+            boostTitle.style.color = "#f39c12";
+        }
+
         function handleDisconnect() {
             alert("Communication Lost!");
             statusLbl.innerText = "Status: Disconnected";
@@ -211,6 +241,7 @@
 
         document.getElementById('ledBtn').addEventListener('click', () => sendMode(1));
         document.getElementById('stimBtn').addEventListener('click', () => sendMode(2));
+        boostModeBtn.addEventListener('click', () => sendMode(3)); // Triggers Mode 3 over BLE
         
         sendBtn.addEventListener('click', () => {
             const currentStep = parseInt(stepInput.value) || 0;
