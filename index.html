@@ -17,13 +17,13 @@
             border-radius: 20px; 
             padding: 30px; 
             box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
-            max-width: 400px; 
+            max-width: 440px; 
             margin: auto;
         }
         
         button { 
             width: 100%; 
-            padding: 20px; 
+            padding: 16px; 
             margin: 10px 0; 
             border: none;
             border-radius: 12px; 
@@ -33,57 +33,140 @@
             transition: 0.2s;
         }
         
+        /* Layout controls for the input cluster */
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        input[type="number"] {
+            width: 40%;
+            padding: 14px;
+            border-radius: 12px;
+            border: 2px solid #333;
+            background: #2a2a2a;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            text-align: center;
+            outline: none;
+        }
+        input[type="number"]:focus {
+            border-color: #f39c12;
+        }
+        
         /* Button color states */
         .btn-connect { background: #3498db; color: white; }
-        .btn-mode { background: #2ecc71; color: white; } /* Green for LED Test */
-        .btn-stim { background: #9b59b6; color: white; } /* Purple for 10kohm Test */
-        .btn-stop { background: #e74c3c; color: white; margin-top: 30px; } /* Big Red Stop */
+        .btn-send { background: #f39c12; color: white; width: 60%; margin: 0; }
+        .btn-stop { background: #e74c3c; color: white; margin-top: 20px; } /* Big Red Stop */
         
         button:active { transform: scale(0.98); opacity: 0.8; }
         button:disabled { background: #333; color: #666; cursor: not-allowed; }
         #status { color: #00ff00; margin-bottom: 20px; font-weight: bold; }
+
+        /* Voltage Reference Table Accordion styling */
+        .accordion {
+            background: #252525;
+            color: #bbb;
+            cursor: pointer;
+            padding: 12px;
+            width: 100%;
+            border: none;
+            text-align: left;
+            outline: none;
+            font-size: 14px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .active, .accordion:hover { background: #303030; color: white; }
+        .panel {
+            padding: 0 10px;
+            background-color: #1a1a1a;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.2s ease-out;
+            border-radius: 0 0 8px 8px;
+            font-size: 13px;
+        }
+        .table-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            padding: 15px 5px;
+            text-align: left;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2>PNU tACS Controller</h2>
+        <h2>PNU tACS Boost Controller</h2>
         <div id="status">Status: Not Connected</div>
         
         <button class="btn-connect" id="connectBtn">PAIR WITH XIAO</button>
         
         <div id="controls" style="display: none;">
-            <button class="btn-mode" id="ledBtn">START LED TEST (Mode 1)</button>
             
-            <button class="btn-stim" id="stimBtn">START 10kohm TEST (Mode 2)</button>
+            <h3 style="text-align: left; margin-bottom: 5px; color: #f39c12;">Boost Converter Test</h3>
+            <p style="text-align: left; font-size: 14px; color: #888; margin-top: 0;">Select a control step from 0 to 31:</p>
             
-            <button class="btn-stop" id="stopBtn">STOP</button>
+            <div class="input-group">
+                <input type="number" id="stepInput" min="0" max="31" value="0">
+                <button class="btn-send" id="sendBtn">SEND STEP</button>
+            </div>
+            
+            <button class="btn-stop" id="stopBtn">SHUTDOWN (Step 0)</button>
+
+            <button class="accordion" id="accordionBtn">📋 View Step-to-Voltage Chart <span>▼</span></button>
+            <div class="panel">
+                <div class="table-container">
+                    <div>
+                        00: 3.70V (Off)<br>01: 3.70V<br>02: 3.70V<br>03: 3.70V<br>04: 3.70V<br>
+                        05: 5.23V<br>06: 6.32V<br>07: 7.41V<br>08: 8.50V<br>09: 9.59V<br>
+                        10: 10.68V<br>11: 11.77V<br>12: 12.86V<br>13: 13.95V<br>14: 15.04V<br>15: 16.13V
+                    </div>
+                    <div>
+                        16: 21.05V<br>17: 22.14V<br>18: 23.23V<br>19: 24.32V<br>20: 25.41V<br>
+                        21: 26.50V<br>22: 27.59V<br>23: 28.68V<br>24: 29.77V<br>25: 30.86V<br>
+                        <strong>26: 31.95V [Target]</strong><br>27: 33.04V<br>28: 34.13V<br>
+                        29: 34.41V (Max)<br>30: 34.41V (Max)<br>31: 34.41V (Max)
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        // --- SYNC WITH ARDUINO UUIDs ---
-        const SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214';
-        const CHARACTERISTIC_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
+        // --- SYNC WITH NEW ARDUINO BOOST UUIDs ---
+        const SERVICE_UUID = '19b10020-e8f2-537e-4f6c-d104768a1214';
+        const CHARACTERISTIC_UUID = '19b10021-e8f2-537e-4f6c-d104768a1214';
 
-        let controlChar;
+        let voltageChar;
 
         const connectBtn = document.getElementById('connectBtn');
         const statusLbl = document.getElementById('status');
         const controlDiv = document.getElementById('controls');
+        const stepInput = document.getElementById('stepInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const stopBtn = document.getElementById('stopBtn');
 
         // --- Bluetooth Connection Logic ---
         connectBtn.addEventListener('click', async () => {
             try {
+                // Filters matching your new local name parameter
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'PNU_tACS_Sense' }],
+                    filters: [{ name: 'PNU_tACS_Boost' }],
                     optionalServices: [SERVICE_UUID]
                 });
 
                 statusLbl.innerText = "Connecting...";
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService(SERVICE_UUID);
-                controlChar = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                voltageChar = await service.getCharacteristic(CHARACTERISTIC_UUID);
 
                 statusLbl.innerText = "CONNECTED";
                 connectBtn.style.display = "none";
@@ -94,12 +177,16 @@
             }
         });
 
-        // --- Data Transmission Logic ---
-        async function sendMode(val) {
-            if (!controlChar) return;
+        // --- Wireless Transmission Output Logic ---
+        async function sendStepValue(val) {
+            if (!voltageChar) return;
             try {
-                await controlChar.writeValue(Uint8Array.of(val));
-                console.log("Sent Mode: " + val);
+                // Ensure values stay strictly in the 0-31 range before broadcasting
+                if (val < 0) val = 0;
+                if (val > 31) val = 31;
+                
+                await voltageChar.writeValue(Uint8Array.of(val));
+                console.log("Transmitted Target Step: " + val);
             } catch (err) {
                 alert("Communication Lost!");
                 statusLbl.innerText = "Status: Disconnected";
@@ -108,10 +195,31 @@
             }
         }
 
-        // --- Event Listeners for Each Mode ---
-        document.getElementById('ledBtn').addEventListener('click', () => sendMode(1));
-        document.getElementById('stimBtn').addEventListener('click', () => sendMode(2));
-        document.getElementById('stopBtn').addEventListener('click', () => sendMode(0));
+        // --- Input Action Listeners ---
+        sendBtn.addEventListener('click', () => {
+            const currentStep = parseInt(stepInput.value) || 0;
+            sendStepValue(currentStep);
+        });
+
+        stopBtn.addEventListener('click', () => {
+            stepInput.value = 0; // Reset input field display to 0
+            sendStepValue(0);    // Turn off boost switching safely
+        });
+
+        // --- Reference Menu UI Drawer Interaction ---
+        const acc = document.getElementById("accordionBtn");
+        acc.addEventListener("click", function() {
+            this.classList.toggle("active");
+            const panel = this.nextElementSibling;
+            const indicator = this.querySelector("span");
+            if (panel.style.maxHeight) {
+                panel.style.maxHeight = null;
+                indicator.innerText = "▼";
+            } else {
+                panel.style.maxHeight = panel.scrollHeight + "px";
+                indicator.innerText = "▲";
+            }
+        });
     </script>
 </body>
 </html>
