@@ -40,10 +40,31 @@
             border-bottom: 1px solid #333;
             padding-bottom: 5px;
         }
+        
+        /* Smooth opening container for the Mode 3 Control Screen */
+        .boost-control-screen {
+            background: #161616;
+            border: 1px solid #2a2a2a;
+            border-radius: 16px;
+            padding: 15px;
+            margin-top: 15px;
+            transition: all 0.3s ease-out;
+            opacity: 0;
+            max-height: 0;
+            overflow: hidden;
+        }
+        
+        /* Active status when Mode 3 unlocks it */
+        .boost-control-screen.show {
+            opacity: 1;
+            max-height: 500px; /* Expands to show content */
+            margin-bottom: 15px;
+        }
+
         .input-group {
             display: flex;
             gap: 10px;
-            margin: 10px 0;
+            margin: 15px 0 10px 0;
         }
         input[type="number"] {
             width: 40%;
@@ -58,14 +79,12 @@
             outline: none;
         }
         input[type="number"]:focus { border-color: #f39c12; }
-        input[type="number"]:disabled { background: #1a1a1a; color: #555; border-color: #222; }
         
         .btn-connect { background: #3498db; color: white; }
         .btn-mode { background: #2ecc71; color: white; } 
         .btn-stim { background: #9b59b6; color: white; } 
-        .btn-boost-mode { background: #2980b9; color: white; } /* Blue for Mode 3 activation */
+        .btn-boost-mode { background: #2980b9; color: white; } 
         .btn-send { background: #f39c12; color: white; width: 60%; margin: 0; }
-        .btn-send:disabled { background: #333; color: #666; cursor: not-allowed; }
         .btn-stop { background: #e74c3c; color: white; margin-top: 25px; } 
         
         button:active { transform: scale(0.98); opacity: 0.8; }
@@ -83,14 +102,14 @@
             outline: none;
             font-size: 13px;
             border-radius: 8px;
-            margin-top: 15px;
+            margin-top: 10px;
             display: flex;
             justify-content: space-between;
         }
         .active, .accordion:hover { background: #2c2c2c; color: white; }
         .panel {
             padding: 0 10px;
-            background-color: #161616;
+            background-color: #0f0f0f;
             max-height: 0;
             overflow: hidden;
             transition: max-height 0.2s ease-out;
@@ -122,25 +141,30 @@
             <button class="btn-stim" id="stimBtn">START 10kohm TEST (Mode 2)</button>
             <button class="btn-boost-mode" id="boostModeBtn">START BOOST CONVERTER TEST (Mode 3)</button>
             
-            <div class="section-title" id="boostSectionTitle">Boost Converter Power Rail (Locked)</div>
-            <div class="input-group">
-                <input type="number" id="stepInput" min="0" max="31" value="0" disabled>
-                <button class="btn-send" id="sendBtn" disabled>SEND STEP</button>
-            </div>
+            <!-- Hidden Control Screen Wrapper (Reveals itself ONLY when Mode 3 runs) -->
+            <div class="boost-control-screen" id="boostPanel">
+                <div class="section-title" style="margin-top: 0; color: #f39c12; border-color: #f39c12;">Boost Dynamic Controls</div>
+                <p style="text-align: left; font-size: 13px; color: #aaa; margin-top: 5px;">Set hardware target step (0 - 31):</p>
+                
+                <div class="input-group">
+                    <input type="number" id="stepInput" min="0" max="31" value="0">
+                    <button class="btn-send" id="sendBtn">SEND STEP</button>
+                </div>
 
-            <button class="accordion" id="accordionBtn">📋 View Step-to-Voltage Chart <span>▼</span></button>
-            <div class="panel">
-                <div class="table-container">
-                    <div>
-                        00: 3.70V (Off)<br>01: 3.70V<br>02: 3.70V<br>03: 3.70V<br>04: 3.70V<br>
-                        05: 5.23V<br>06: 6.32V<br>07: 7.41V<br>08: 8.50V<br>09: 9.59V<br>
-                        10: 10.68V<br>11: 11.77V<br>12: 12.86V<br>13: 13.95V<br>14: 15.04V<br>15: 16.13V
-                    </div>
-                    <div>
-                        16: 21.05V<br>17: 22.14V<br>18: 23.23V<br>19: 24.32V<br>20: 25.41V<br>
-                        21: 26.50V<br>22: 27.59V<br>23: 28.68V<br>24: 29.77V<br>25: 30.86V<br>
-                        <strong>26: 31.95V [Target]</strong><br>27: 33.04V<br>28: 34.13V<br>
-                        29: 34.41V (Max)<br>30: 34.41V (Max)<br>31: 34.41V (Max)
+                <button class="accordion" id="accordionBtn">📋 View Step-to-Voltage Chart <span>▼</span></button>
+                <div class="panel">
+                    <div class="table-container">
+                        <div>
+                            00: 3.70V (Off)<br>01: 3.70V<br>02: 3.70V<br>03: 3.70V<br>04: 3.70V<br>
+                            05: 5.23V<br>06: 6.32V<br>07: 7.41V<br>08: 8.50V<br>09: 9.59V<br>
+                            10: 10.68V<br>11: 11.77V<br>12: 12.86V<br>13: 13.95V<br>14: 15.04V<br>15: 16.13V
+                        </div>
+                        <div>
+                            16: 21.05V<br>17: 22.14V<br>18: 23.23V<br>19: 24.32V<br>20: 25.41V<br>
+                            21: 26.50V<br>22: 27.59V<br>23: 28.68V<br>24: 29.77V<br>25: 30.86V<br>
+                            <strong>26: 31.95V [Target]</strong><br>27: 33.04V<br>28: 34.13V<br>
+                            29: 34.41V (Max)<br>30: 34.41V (Max)<br>31: 34.41V (Max)
+                        </div>
                     </div>
                 </div>
             </div>
@@ -165,7 +189,7 @@
         const sendBtn      = document.getElementById('sendBtn');
         const stopBtn      = document.getElementById('stopBtn');
         const boostModeBtn = document.getElementById('boostModeBtn');
-        const boostTitle   = document.getElementById('boostSectionTitle');
+        const boostPanel   = document.getElementById('boostPanel');
 
         connectBtn.addEventListener('click', async () => {
             try {
@@ -186,8 +210,6 @@
                 statusLbl.innerText = "CONNECTED (ALL SERVICES READY)";
                 connectBtn.style.display = "none";
                 controlDiv.style.display = "block";
-                
-                lockBoostInterface(); // Start with the boost input locked until Mode 3 is pressed
             } catch (err) {
                 statusLbl.innerText = "Error: " + err;
                 console.error(err);
@@ -200,10 +222,12 @@
                 await tacsControlChar.writeValue(Uint8Array.of(val));
                 console.log("Sent Mode: " + val);
                 
+                // Dynamic Visual Transition Logic
                 if (val === 3) {
-                    unlockBoostInterface();
+                    boostPanel.classList.add('show'); // Slide OPEN the control screen
                 } else {
-                    lockBoostInterface();
+                    boostPanel.classList.remove('show'); // Slide CLOSED for Mode 1, Mode 2, etc.
+                    closeAccordion();
                 }
             } catch (err) { handleDisconnect(); }
         }
@@ -218,30 +242,25 @@
             } catch (err) { handleDisconnect(); }
         }
 
-        function lockBoostInterface() {
-            stepInput.disabled = true;
-            sendBtn.disabled = true;
-            boostTitle.innerText = "Boost Converter Power Rail (Locked)";
-            boostTitle.style.color = "#888";
-        }
-
-        function unlockBoostInterface() {
-            stepInput.disabled = false;
-            sendBtn.disabled = false;
-            boostTitle.innerText = "Boost Converter Power Rail (Active)";
-            boostTitle.style.color = "#f39c12";
-        }
-
         function handleDisconnect() {
             alert("Communication Lost!");
             statusLbl.innerText = "Status: Disconnected";
             connectBtn.style.display = "block";
             controlDiv.style.display = "none";
+            boostPanel.classList.remove('show');
+        }
+
+        function closeAccordion() {
+            const panel = document.querySelector('.panel');
+            const indicator = document.querySelector('#accordionBtn span');
+            document.getElementById("accordionBtn").classList.remove("active");
+            panel.style.maxHeight = null;
+            indicator.innerText = "▼";
         }
 
         document.getElementById('ledBtn').addEventListener('click', () => sendMode(1));
         document.getElementById('stimBtn').addEventListener('click', () => sendMode(2));
-        boostModeBtn.addEventListener('click', () => sendMode(3)); // Triggers Mode 3 over BLE
+        boostModeBtn.addEventListener('click', () => sendMode(3)); 
         
         sendBtn.addEventListener('click', () => {
             const currentStep = parseInt(stepInput.value) || 0;
