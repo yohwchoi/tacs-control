@@ -4,7 +4,6 @@
     <title>PNU tACS Lab Controller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        /* Base styling for the dark lab interface */
         body { 
             font-family: -apple-system, sans-serif;
             background: #121212; 
@@ -20,7 +19,6 @@
             max-width: 420px; 
             margin: auto;
         }
-        
         button { 
             width: 100%; 
             padding: 18px; 
@@ -32,8 +30,6 @@
             cursor: pointer; 
             transition: 0.2s;
         }
-        
-        /* Section Divider headers */
         .section-title {
             text-align: left;
             margin: 25px 0 5px 0;
@@ -44,8 +40,6 @@
             border-bottom: 1px solid #333;
             padding-bottom: 5px;
         }
-
-        /* Input layout elements for the boost module */
         .input-group {
             display: flex;
             gap: 10px;
@@ -63,22 +57,15 @@
             text-align: center;
             outline: none;
         }
-        input[type="number"]:focus {
-            border-color: #f39c12;
-        }
-        
-        /* Button color states */
+        input[type="number"]:focus { border-color: #f39c12; }
         .btn-connect { background: #3498db; color: white; }
-        .btn-mode { background: #2ecc71; color: white; } /* Green for LED Test */
-        .btn-stim { background: #9b59b6; color: white; } /* Purple for 10kohm Test */
+        .btn-mode { background: #2ecc71; color: white; } 
+        .btn-stim { background: #9b59b6; color: white; } 
         .btn-send { background: #f39c12; color: white; width: 60%; margin: 0; }
-        .btn-stop { background: #e74c3c; color: white; margin-top: 25px; } /* Master Stop */
-        
+        .btn-stop { background: #e74c3c; color: white; margin-top: 25px; } 
         button:active { transform: scale(0.98); opacity: 0.8; }
         button:disabled { background: #333; color: #666; cursor: not-allowed; }
         #status { color: #00ff00; margin-bottom: 20px; font-weight: bold; }
-
-        /* Voltage Reference Table Dropdown styling */
         .accordion {
             background: #252525;
             color: #999;
@@ -124,7 +111,6 @@
         <button class="btn-connect" id="connectBtn">PAIR WITH XIAO</button>
         
         <div id="controls" style="display: none;">
-            
             <div class="section-title">Stimulation Controller</div>
             <button class="btn-mode" id="ledBtn">START LED TEST (Mode 1)</button>
             <button class="btn-stim" id="stimBtn">START 10kohm TEST (Mode 2)</button>
@@ -157,11 +143,8 @@
     </div>
 
     <script>
-        // --- SERVICE 1: CORE tACS STIMULATION UUIDs ---
         const TACS_SERVICE_UUID        = '19b10000-e8f2-537e-4f6c-d104768a1214';
         const TACS_CHARACTERISTIC_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
-
-        // --- SERVICE 2: VOLTAGE RAIL BOOST UUIDs ---
         const BOOST_SERVICE_UUID       = '19b10020-e8f2-537e-4f6c-d104768a1214';
         const BOOST_CHARACTERISTIC_UUID = '19b10021-e8f2-537e-4f6c-d104768a1214';
 
@@ -175,10 +158,9 @@
         const sendBtn    = document.getElementById('sendBtn');
         const stopBtn    = document.getElementById('stopBtn');
 
-        // --- Centralized Wireless Pairing Logic ---
         connectBtn.addEventListener('click', async () => {
             try {
-                // Request authorization for the main device name and declare both distinct services
+                // Now filters and local names match perfectly on 'PNU_tACS_Sense'
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'PNU_tACS_Sense' }],
                     optionalServices: [TACS_SERVICE_UUID, BOOST_SERVICE_UUID]
@@ -187,11 +169,9 @@
                 statusLbl.innerText = "Connecting...";
                 const server = await device.gatt.connect();
                 
-                // Mount Service 1 (tACS Mode selection engine)
                 const tacsService = await server.getPrimaryService(TACS_SERVICE_UUID);
                 tacsControlChar = await tacsService.getCharacteristic(TACS_CHARACTERISTIC_UUID);
 
-                // Mount Service 2 (EasyScale DC rail engine)
                 const boostService = await server.getPrimaryService(BOOST_SERVICE_UUID);
                 boostVoltageChar = await boostService.getCharacteristic(BOOST_CHARACTERISTIC_UUID);
 
@@ -204,33 +184,24 @@
             }
         });
 
-        // --- Data Pipe 1: Send Core Mode Commands ---
         async function sendMode(val) {
             if (!tacsControlChar) return;
             try {
                 await tacsControlChar.writeValue(Uint8Array.of(val));
                 console.log("Sent Mode: " + val);
-            } catch (err) {
-                handleDisconnect();
-            }
+            } catch (err) { handleDisconnect(); }
         }
 
-        // --- Data Pipe 2: Send Boost Steps ---
         async function sendBoostStep(val) {
             if (!boostVoltageChar) return;
             try {
-                // Safety logic validation right before radio packet leaves
                 if (val < 0) val = 0;
                 if (val > 31) val = 31;
-                
                 await boostVoltageChar.writeValue(Uint8Array.of(val));
                 console.log("Sent Boost Step: " + val);
-            } catch (err) {
-                handleDisconnect();
-            }
+            } catch (err) { handleDisconnect(); }
         }
 
-        // --- Disconnection Reset Framework ---
         function handleDisconnect() {
             alert("Communication Lost!");
             statusLbl.innerText = "Status: Disconnected";
@@ -238,7 +209,6 @@
             controlDiv.style.display = "none";
         }
 
-        // --- Interaction Event Triggers ---
         document.getElementById('ledBtn').addEventListener('click', () => sendMode(1));
         document.getElementById('stimBtn').addEventListener('click', () => sendMode(2));
         
@@ -247,14 +217,12 @@
             sendBoostStep(currentStep);
         });
 
-        // --- Unified Master System Reset ---
         stopBtn.addEventListener('click', () => {
-            sendMode(0);         // 1. Instantly stop active stimulation wave generations
-            stepInput.value = 0; // 2. Set client input display value back to baseline 0
-            sendBoostStep(0);    // 3. Drop the physical boost converter back to 3.7V shutdown
+            sendMode(0);         
+            stepInput.value = 0; 
+            sendBoostStep(0);    
         });
 
-        // --- Reference Menu Drawer Toggle ---
         const acc = document.getElementById("accordionBtn");
         acc.addEventListener("click", function() {
             this.classList.toggle("active");
