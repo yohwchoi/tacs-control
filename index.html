@@ -59,7 +59,7 @@
             margin-bottom: 15px;
         }
 
-        /* --- NEW STYLING: Live Rail Monitor Dashboard Box --- */
+        /* Live Rail Monitor Dashboard Box */
         .live-monitor-box {
             background: #222;
             border-radius: 12px;
@@ -153,7 +153,7 @@
 
     <div class="card">
         <h2>PNU tACS Controller</h2>
-        <div id="status">Status: Not Connected</div>
+        <div id="status" style="color: #e74c3c;">Status: Not Connected</div>
         
         <button class="btn-connect" id="connectBtn">PAIR WITH XIAO</button>
         
@@ -168,7 +168,7 @@
                 
                 <div class="live-monitor-box">
                     <div class="monitor-label">Active Power Rail State</div>
-                    <div class="monitor-value" id="monitorReadout">Step 00 / 3.70V</div>
+                    <div class="monitor-value" id="monitorReadout">Step 00 / 3.70V (Off)</div>
                 </div>
 
                 <p style="text-align: left; font-size: 13px; color: #aaa; margin-top: 5px;">Set hardware target step (0 - 31):</p>
@@ -201,12 +201,12 @@
     </div>
 
     <script>
+        // 아두이노 코드의 서비스 및 캐릭터리스틱 UUID 구조와 정확히 일치 (소문자로 통일 권장)
         const TACS_SERVICE_UUID        = '19b10000-e8f2-537e-4f6c-d104768a1214';
         const TACS_CHARACTERISTIC_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
         const BOOST_SERVICE_UUID       = '19b10020-e8f2-537e-4f6c-d104768a1214';
         const BOOST_CHARACTERISTIC_UUID = '19b10021-e8f2-537e-4f6c-d104768a1214';
 
-        // Dynamic Javascript mapping table matching your pre-calculated parameters
         const voltageMap = [
             "3.70V (Off)", "3.70V", "3.70V", "3.70V", "3.70V", "5.23V", "6.32V", "7.41V", 
             "8.50V", "9.59V", "10.68V", "11.77V", "12.86V", "13.95V", "15.04V", "16.13V", 
@@ -214,8 +214,9 @@
             "29.77V", "30.86V", "31.95V [Target]", "33.04V", "34.13V", "34.41V (Max)", "34.41V (Max)", "34.41V (Max)"
         ];
 
-        let tacsControlChar;
-        let boostVoltageChar;
+        let bleDevice = null;
+        let tacsControlChar = null;
+        let boostVoltageChar = null;
 
         const connectBtn     = document.getElementById('connectBtn');
         const statusLbl      = document.getElementById('status');
@@ -229,14 +230,21 @@
 
         connectBtn.addEventListener('click', async () => {
             try {
-                const device = await navigator.bluetooth.requestDevice({
+                statusLbl.innerText = "Requesting device...";
+                statusLbl.style.color = "#f39c12";
+
+                bleDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'PNU_tACS_Sense' }],
                     optionalServices: [TACS_SERVICE_UUID, BOOST_SERVICE_UUID]
                 });
 
-                statusLbl.innerText = "Connecting...";
-                const server = await device.gatt.connect();
+                // 블루투스 연결 유실 감지 이벤트 리스너 바인딩
+                bleDevice.addEventListener('gattserverdisconnected', handleDisconnect);
+
+                statusLbl.innerText = "Connecting to GATT Server...";
+                const server = await bleDevice.gatt.connect();
                 
+                statusLbl.innerText = "Discovering Services...";
                 const tacsService = await server.getPrimaryService(TACS_SERVICE_UUID);
                 tacsControlChar = await tacsService.getCharacteristic(TACS_CHARACTERISTIC_UUID);
 
@@ -244,10 +252,12 @@
                 boostVoltageChar = await boostService.getCharacteristic(BOOST_CHARACTERISTIC_UUID);
 
                 statusLbl.innerText = "CONNECTED (ALL SERVICES READY)";
+                statusLbl.style.color = "#00ff00";
                 connectBtn.style.display = "none";
                 controlDiv.style.display = "block";
             } catch (err) {
                 statusLbl.innerText = "Error: " + err;
+                statusLbl.style.color = "#e74c3c";
                 console.error(err);
             }
         });
@@ -255,7 +265,8 @@
         async function sendMode(val) {
             if (!tacsControlChar) return;
             try {
-                await tacsControlChar.writeValue(Uint8Array.of(val));
+                // bluefruit 스택과의 완벽한 버퍼 싱크를 위해 writeValueWithResponse 사용
+                await tacsControlChar.writeValueWithResponse(Uint8Array.of(val));
                 console.log("Sent Mode: " + val);
                 
                 if (val === 3) {
@@ -264,31 +275,36 @@
                     boostPanel.classList.remove('show'); 
                     closeAccordion();
                 }
-            } catch (err) { handleDisconnect(); }
+            } catch (err) { 
+                console.error("Mode write fail:", err);
+            }
         }
 
         async function sendBoostStep(val) {
             if (!boostVoltageChar) return;
             try {
-                if (val < 0) val = 0;
-                if (val > 31) val = 31;
+                val = Math.max(0, Math.min(31, val)); // 입력 값 범위 클램핑 보장
                 
-                await boostVoltageChar.writeValue(Uint8Array.of(val));
+                // bluefruit 스택과의 완벽한 버퍼 싱크를 위해 writeValueWithResponse 사용
+                await boostVoltageChar.writeValueWithResponse(Uint8Array.of(val));
                 console.log("Sent Boost Step: " + val);
 
-                // --- UPDATE STATE VIEW PANEL ---
-                // Pads single digit values with a leading 0 (e.g., Step 5 becomes 05)
                 let paddedStep = String(val).padStart(2, '0');
                 monitorReadout.innerText = `Step ${paddedStep} / ${voltageMap[val]}`;
-            } catch (err) { handleDisconnect(); }
+            } catch (err) { 
+                console.error("Boost step write fail:", err);
+            }
         }
 
         function handleDisconnect() {
             alert("Communication Lost!");
             statusLbl.innerText = "Status: Disconnected";
+            statusLbl.style.color = "#e74c3c";
             connectBtn.style.display = "block";
             controlDiv.style.display = "none";
             boostPanel.classList.remove('show');
+            tacsControlChar = null;
+            boostVoltageChar = null;
         }
 
         function closeAccordion() {
@@ -308,10 +324,10 @@
             sendBoostStep(currentStep);
         });
 
-        stopBtn.addEventListener('click', () => {
-            sendMode(0);         
+        stopBtn.addEventListener('click', async () => {
+            await sendMode(0);         
             stepInput.value = 0; 
-            sendBoostStep(0); // Updates readout box back to Step 00 / 3.70V (Off)
+            await sendBoostStep(0); 
         });
 
         const acc = document.getElementById("accordionBtn");
