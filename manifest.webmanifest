@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "PNU tES Controller",
+  "short_name": "tES Control",
+  "description": "Bluetooth bench controls for the PNU XIAO tES system",
+  "lang": "en",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f3ee",
+  "theme_color": "#122c34",
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

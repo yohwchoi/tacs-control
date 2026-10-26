@@ -1,348 +1,67 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-    <title>PNU tACS Lab Controller</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { 
-            font-family: -apple-system, sans-serif;
-            background: #121212; 
-            color: white; 
-            text-align: center; 
-            padding: 20px; 
-        }
-        .card { 
-            background: #1e1e1e;
-            border-radius: 20px; 
-            padding: 30px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
-            max-width: 420px; 
-            margin: auto;
-        }
-        button { 
-            width: 100%; 
-            padding: 18px; 
-            margin: 10px 0; 
-            border: none;
-            border-radius: 12px; 
-            font-size: 17px; 
-            font-weight: bold; 
-            cursor: pointer; 
-            transition: 0.2s;
-        }
-        .section-title {
-            text-align: left;
-            margin: 25px 0 5px 0;
-            color: #888;
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            border-bottom: 1px solid #333;
-            padding-bottom: 5px;
-        }
-        
-        /* Smooth opening container for Mode 3 */
-        .boost-control-screen {
-            background: #161616;
-            border: 1px solid #2a2a2a;
-            border-radius: 16px;
-            padding: 15px;
-            margin-top: 15px;
-            transition: all 0.3s ease-out;
-            opacity: 0;
-            max-height: 0;
-            overflow: hidden;
-        }
-        .boost-control-screen.show {
-            opacity: 1;
-            max-height: 600px; 
-            margin-bottom: 15px;
-        }
-
-        /* Live Rail Monitor Dashboard Box */
-        .live-monitor-box {
-            background: #222;
-            border-radius: 12px;
-            padding: 12px;
-            margin: 10px 0 15px 0;
-            border-left: 5px solid #f39c12;
-            text-align: left;
-        }
-        .monitor-label {
-            font-size: 12px;
-            text-transform: uppercase;
-            color: #777;
-            letter-spacing: 0.5px;
-            margin-bottom: 3px;
-            font-weight: bold;
-        }
-        .monitor-value {
-            font-size: 22px;
-            font-weight: bold;
-            font-family: monospace;
-            color: #f39c12;
-        }
-
-        .input-group {
-            display: flex;
-            gap: 10px;
-            margin: 10px 0;
-        }
-        input[type="number"] {
-            width: 40%;
-            padding: 14px;
-            border-radius: 12px;
-            border: 2px solid #333;
-            background: #2a2a2a;
-            color: white;
-            font-size: 20px;
-            font-weight: bold;
-            text-align: center;
-            outline: none;
-        }
-        input[type="number"]:focus { border-color: #f39c12; }
-        
-        .btn-connect { background: #3498db; color: white; }
-        .btn-mode { background: #2ecc71; color: white; } 
-        .btn-stim { background: #9b59b6; color: white; } 
-        .btn-boost-mode { background: #2980b9; color: white; } 
-        .btn-send { background: #f39c12; color: white; width: 60%; margin: 0; }
-        .btn-stop { background: #e74c3c; color: white; margin-top: 25px; } 
-        
-        button:active { transform: scale(0.98); opacity: 0.8; }
-        button:disabled { background: #333; color: #666; cursor: not-allowed; }
-        #status { color: #00ff00; margin-bottom: 20px; font-weight: bold; }
-        
-        .accordion {
-            background: #252525;
-            color: #999;
-            cursor: pointer;
-            padding: 12px;
-            width: 100%;
-            border: none;
-            text-align: left;
-            outline: none;
-            font-size: 13px;
-            border-radius: 8px;
-            margin-top: 10px;
-            display: flex;
-            justify-content: space-between;
-        }
-        .active, .accordion:hover { background: #2c2c2c; color: white; }
-        .panel {
-            padding: 0 10px;
-            background-color: #0f0f0f;
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.2s ease-out;
-            border-radius: 0 0 8px 8px;
-            font-size: 12px;
-        }
-        .table-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            padding: 12px 5px;
-            text-align: left;
-            font-family: monospace;
-            color: #aaa;
-        }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#122c34">
+  <meta name="description" content="PNU tES bench controller for XIAO Bluetooth devices.">
+  <title>PNU tES Controller</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/png" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
 </head>
 <body>
+  <main class="app">
+    <header class="masthead">
+      <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M5 24h9V12h10v24h10V24h9"/></svg></div>
+      <div><p class="eyebrow">PNU · BENCH CONTROL</p><h1>tES Controller</h1></div>
+      <span class="version">v2.0</span>
+    </header>
 
-    <div class="card">
-        <h2>PNU tACS Controller</h2>
-        <div id="status" style="color: #e74c3c;">Status: Not Connected</div>
-        
-        <button class="btn-connect" id="connectBtn">PAIR WITH XIAO</button>
-        
-        <div id="controls" style="display: none;">
-            <div class="section-title">Stimulation Controller</div>
-            <button class="btn-mode" id="ledBtn">START LED TEST (Mode 1)</button>
-            <button class="btn-stim" id="stimBtn">START 10kohm TEST (Mode 2)</button>
-            <button class="btn-boost-mode" id="boostModeBtn">START BOOST CONVERTER TEST (Mode 3)</button>
-            
-            <div class="boost-control-screen" id="boostPanel">
-                <div class="section-title" style="margin-top: 0; color: #f39c12; border-color: #f39c12;">Boost Dynamic Controls</div>
-                
-                <div class="live-monitor-box">
-                    <div class="monitor-label">Active Power Rail State</div>
-                    <div class="monitor-value" id="monitorReadout">Step 00 / 3.70V (Off)</div>
-                </div>
+    <section class="card connection" aria-labelledby="connectionTitle">
+      <div class="section-top"><h2 id="connectionTitle">Connection</h2><span id="connectionBadge" class="badge"><span class="dot"></span><span id="connectionState">Not connected</span></span></div>
+      <p id="connectionHint" class="muted">Power your XIAO, turn on Bluetooth, then choose your device.</p>
+      <button id="connectBtn" class="primary">Connect to XIAO <span aria-hidden="true">↗</span></button>
+      <p class="device-name">Device name <code>PNU_tACS_Sense</code></p>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden><strong id="noticeTitle"></strong><p id="noticeText"></p><details id="errorDetails" hidden><summary>Technical details</summary><pre id="errorTechnical"></pre></details></div>
+    </section>
 
-                <p style="text-align: left; font-size: 13px; color: #aaa; margin-top: 5px;">Set hardware target step (0 - 31):</p>
-                
-                <div class="input-group">
-                    <input type="number" id="stepInput" min="0" max="31" value="0">
-                    <button class="btn-send" id="sendBtn">SEND STEP</button>
-                </div>
-
-                <button class="accordion" id="accordionBtn">📋 View Step-to-Voltage Chart <span>▼</span></button>
-                <div class="panel">
-                    <div class="table-container">
-                        <div>
-                            00: 3.70V (Off)<br>01: 3.70V<br>02: 3.70V<br>03: 3.70V<br>04: 3.70V<br>
-                            05: 5.23V<br>06: 6.32V<br>07: 7.41V<br>08: 8.50V<br>09: 9.59V<br>
-                            10: 10.68V<br>11: 11.77V<br>12: 12.86V<br>13: 13.95V<br>14: 15.04V<br>15: 16.13V
-                        </div>
-                        <div>
-                            16: 21.05V<br>17: 22.14V<br>18: 23.23V<br>19: 24.32V<br>20: 25.41V<br>
-                            21: 26.50V<br>22: 27.59V<br>23: 28.68V<br>24: 29.77V<br>25: 30.86V<br>
-                            <strong>26: 31.95V [Target]</strong><br>27: 33.04V<br>28: 34.13V<br>
-                            29: 34.41V (Max)<br>30: 34.41V (Max)<br>31: 34.41V (Max)
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <button class="btn-stop" id="stopBtn">GLOBAL STOP</button>
+    <div class="workspace">
+      <section class="card tests" aria-labelledby="testsTitle">
+        <div class="section-top"><h2 id="testsTitle">Test modes</h2><span class="small-label">EXISTING FIRMWARE</span></div>
+        <p class="muted">Choose a test after connecting.</p>
+        <button class="mode" id="ledBtn" disabled><span class="mode-number">01</span><span><strong>LED test</strong><small>Check the switching sequence</small></span><span class="arrow" aria-hidden="true">↗</span></button>
+        <button class="mode" id="stimBtn" disabled><span class="mode-number">02</span><span><strong>10 kΩ load test</strong><small>Use your bench test load</small></span><span class="arrow" aria-hidden="true">↗</span></button>
+        <button class="mode" id="boostModeBtn" disabled><span class="mode-number">03</span><span><strong>Boost-converter test</strong><small>Set the existing hardware step</small></span><span class="arrow" aria-hidden="true">↗</span></button>
+        <div id="boostPanel" class="boost-panel" hidden>
+          <label for="stepInput">Target step <span class="muted">0–31</span></label>
+          <div class="step-row"><input id="stepInput" type="number" min="0" max="31" step="1" value="0" inputmode="numeric"><button id="sendBtn" class="primary" disabled>Send step</button></div>
+          <p id="stepReadout" class="step-readout">No step sent this connection.</p>
+          <p class="caption">Voltage below is a table reference, not a measurement.</p>
+          <details><summary>Step-to-voltage reference</summary><div id="voltageTable" class="voltage-table"></div></details>
         </div>
+      </section>
+
+      <aside class="side-column">
+        <section class="card command" aria-labelledby="commandTitle">
+          <p class="eyebrow">LAST COMMAND</p><h2 id="commandTitle">Ready when you are.</h2>
+          <p id="commandDetail" class="muted" role="status" aria-live="polite">Connect to enable the controls. Device output has not been verified.</p>
+          <p class="caption">A Bluetooth write confirms delivery, not the measured output.</p>
+        </section>
+        <section class="card install" aria-labelledby="installTitle">
+          <p class="eyebrow">ONE-TAP ACCESS</p><h2 id="installTitle">Keep it on your home screen.</h2>
+          <p id="installHint" class="muted">In Android Chrome, open ⋮ → Install and create shortcut → Install. Some versions say Add to Home screen.</p>
+          <button id="installBtn" class="secondary" hidden>Install tES Controller</button>
+          <p id="offlineStatus" class="caption" role="status">Preparing offline access…</p>
+          <div id="updateNotice" hidden><p class="caption">An app update is ready. Stop the device before reloading.</p><button id="updateBtn" class="secondary">Reload update</button></div>
+        </section>
+      </aside>
     </div>
 
-    <script>
-        // 아두이노 코드의 서비스 및 캐릭터리스틱 UUID 구조와 정확히 일치 (소문자로 통일 권장)
-        const TACS_SERVICE_UUID        = '19b10000-e8f2-537e-4f6c-d104768a1214';
-        const TACS_CHARACTERISTIC_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
-        const BOOST_SERVICE_UUID       = '19b10020-e8f2-537e-4f6c-d104768a1214';
-        const BOOST_CHARACTERISTIC_UUID = '19b10021-e8f2-537e-4f6c-d104768a1214';
-
-        const voltageMap = [
-            "3.70V (Off)", "3.70V", "3.70V", "3.70V", "3.70V", "5.23V", "6.32V", "7.41V", 
-            "8.50V", "9.59V", "10.68V", "11.77V", "12.86V", "13.95V", "15.04V", "16.13V", 
-            "21.05V", "22.14V", "23.23V", "24.32V", "25.41V", "26.50V", "27.59V", "28.68V", 
-            "29.77V", "30.86V", "31.95V [Target]", "33.04V", "34.13V", "34.41V (Max)", "34.41V (Max)", "34.41V (Max)"
-        ];
-
-        let bleDevice = null;
-        let tacsControlChar = null;
-        let boostVoltageChar = null;
-
-        const connectBtn     = document.getElementById('connectBtn');
-        const statusLbl      = document.getElementById('status');
-        const controlDiv     = document.getElementById('controls');
-        const stepInput      = document.getElementById('stepInput');
-        const sendBtn        = document.getElementById('sendBtn');
-        const stopBtn        = document.getElementById('stopBtn');
-        const boostModeBtn   = document.getElementById('boostModeBtn');
-        const boostPanel     = document.getElementById('boostPanel');
-        const monitorReadout = document.getElementById('monitorReadout');
-
-        connectBtn.addEventListener('click', async () => {
-            try {
-                statusLbl.innerText = "Requesting device...";
-                statusLbl.style.color = "#f39c12";
-
-                bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'PNU_tACS_Sense' }],
-                    optionalServices: [TACS_SERVICE_UUID, BOOST_SERVICE_UUID]
-                });
-
-                // 블루투스 연결 유실 감지 이벤트 리스너 바인딩
-                bleDevice.addEventListener('gattserverdisconnected', handleDisconnect);
-
-                statusLbl.innerText = "Connecting to GATT Server...";
-                const server = await bleDevice.gatt.connect();
-                
-                statusLbl.innerText = "Discovering Services...";
-                const tacsService = await server.getPrimaryService(TACS_SERVICE_UUID);
-                tacsControlChar = await tacsService.getCharacteristic(TACS_CHARACTERISTIC_UUID);
-
-                const boostService = await server.getPrimaryService(BOOST_SERVICE_UUID);
-                boostVoltageChar = await boostService.getCharacteristic(BOOST_CHARACTERISTIC_UUID);
-
-                statusLbl.innerText = "CONNECTED (ALL SERVICES READY)";
-                statusLbl.style.color = "#00ff00";
-                connectBtn.style.display = "none";
-                controlDiv.style.display = "block";
-            } catch (err) {
-                statusLbl.innerText = "Error: " + err;
-                statusLbl.style.color = "#e74c3c";
-                console.error(err);
-            }
-        });
-
-        async function sendMode(val) {
-            if (!tacsControlChar) return;
-            try {
-                // bluefruit 스택과의 완벽한 버퍼 싱크를 위해 writeValueWithResponse 사용
-                await tacsControlChar.writeValueWithResponse(Uint8Array.of(val));
-                console.log("Sent Mode: " + val);
-                
-                if (val === 3) {
-                    boostPanel.classList.add('show'); 
-                } else {
-                    boostPanel.classList.remove('show'); 
-                    closeAccordion();
-                }
-            } catch (err) { 
-                console.error("Mode write fail:", err);
-            }
-        }
-
-        async function sendBoostStep(val) {
-            if (!boostVoltageChar) return;
-            try {
-                val = Math.max(0, Math.min(31, val)); // 입력 값 범위 클램핑 보장
-                
-                // bluefruit 스택과의 완벽한 버퍼 싱크를 위해 writeValueWithResponse 사용
-                await boostVoltageChar.writeValueWithResponse(Uint8Array.of(val));
-                console.log("Sent Boost Step: " + val);
-
-                let paddedStep = String(val).padStart(2, '0');
-                monitorReadout.innerText = `Step ${paddedStep} / ${voltageMap[val]}`;
-            } catch (err) { 
-                console.error("Boost step write fail:", err);
-            }
-        }
-
-        function handleDisconnect() {
-            alert("Communication Lost!");
-            statusLbl.innerText = "Status: Disconnected";
-            statusLbl.style.color = "#e74c3c";
-            connectBtn.style.display = "block";
-            controlDiv.style.display = "none";
-            boostPanel.classList.remove('show');
-            tacsControlChar = null;
-            boostVoltageChar = null;
-        }
-
-        function closeAccordion() {
-            const panel = document.querySelector('.panel');
-            const indicator = document.querySelector('#accordionBtn span');
-            document.getElementById("accordionBtn").classList.remove("active");
-            panel.style.maxHeight = null;
-            indicator.innerText = "▼";
-        }
-
-        document.getElementById('ledBtn').addEventListener('click', () => sendMode(1));
-        document.getElementById('stimBtn').addEventListener('click', () => sendMode(2));
-        boostModeBtn.addEventListener('click', () => sendMode(3)); 
-        
-        sendBtn.addEventListener('click', () => {
-            const currentStep = parseInt(stepInput.value) || 0;
-            sendBoostStep(currentStep);
-        });
-
-        stopBtn.addEventListener('click', async () => {
-            await sendMode(0);         
-            stepInput.value = 0; 
-            await sendBoostStep(0); 
-        });
-
-        const acc = document.getElementById("accordionBtn");
-        acc.addEventListener("click", function() {
-            this.classList.toggle("active");
-            const panel = this.nextElementSibling;
-            const indicator = this.querySelector("span");
-            if (panel.style.maxHeight) {
-                panel.style.maxHeight = null;
-                indicator.innerText = "▼";
-            } else {
-                panel.style.maxHeight = panel.scrollHeight + "px";
-                indicator.innerText = "▲";
-            }
-        });
-    </script>
+    <footer class="stop-bar"><div><strong>Stop all tests</strong><p id="stopHint">Connect to send a stop command.</p></div><button id="stopBtn" class="stop" disabled>STOP ALL</button></footer>
+    <p class="footer-note">tES · Biphasic pulse controller <span>Hardware parameters unchanged</span></p>
+  </main>
 </body>
 </html>
