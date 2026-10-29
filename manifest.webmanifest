@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "PNU tES Diagnostic",
-  "short_name": "tES Diag",
-  "description": "PNU tES PCB diagnostic app (Web Bluetooth)",
+  "name": "PNU tES Bench",
+  "short_name": "tES Bench",
+  "description": "PNU tES bench app: LED test and APCMBE experiment (Web Bluetooth)",
   "lang": "ko",
   "start_url": "./",
   "scope": "./",

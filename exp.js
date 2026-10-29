@@ -1,6 +1,6 @@
 'use strict';
-/* tES experiment app v1 — pairs with firmware tES-EXP v1 (1 kHz biphasic, 0.5–2 mA).
-   Same BLE service as the diagnostic app. Bench use only, resistor load. */
+/* tES bench app v4 (main page) — toy LED test + APCMBE experiment. Pairs with firmware tES-EXP v1
+   (1 kHz biphasic, 0.5–2 mA). Same BLE service as the diagnostic app. Bench use only. */
 
 const SVC = '19b10000-e8f2-537e-4f6c-d104768a1214';
 const CMD = '19b10001-e8f2-537e-4f6c-d104768a1214';
@@ -23,9 +23,9 @@ let tab = 'ctl', runFilter = 'todo';
 const openItems = new Set();
 
 /* ---------- stored data ---------- */
-function blank() { return { tests: {}, run: {}, rl: {} }; }
+function blank() { return { tests: {}, led: {}, run: {}, rl: {} }; }
 function load() {
-  try { const d = JSON.parse(localStorage.getItem(STORE_KEY)); return d && d.run ? d : blank(); } catch (e) { return blank(); }
+  try { const d = JSON.parse(localStorage.getItem(STORE_KEY)); return d && d.run ? Object.assign(blank(), d) : blank(); } catch (e) { return blank(); }
 }
 let db = load();
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); } catch (e) {} }
@@ -61,6 +61,20 @@ function buildPlan() {
 }
 const PLAN = buildPlan();
 const CAPS = PLAN.filter(i => i.kind === 'cap');
+
+/* ---------- toy LED test ---------- */
+const LED_TESTS = [
+  { id: 'fw', title: '연결·firmware', text: `연결 후 Firmware 칸이 "${FW_EXPECTED}"인지 확인. 다르면 tES_Exp_v1.ino를 업로드.`, auto: true },
+  { id: 'holdA', title: 'HOLD A (0.5 mA)', text: '한 방향으로 계속 흘림 → LED 하나(A 쪽)만 켜짐. 30 s 뒤 자동 정지.',
+    acts: [['HOLD A 0.5 mA', ['0', 'l', 'a']]] },
+  { id: 'holdB', title: 'HOLD B (0.5 mA)', text: '반대 방향 → 다른 LED(B 쪽)만 켜짐. 한쪽이 안 켜지면 먼저 그 LED 방향을 뒤집어 본다.',
+    acts: [['HOLD B 0.5 mA', ['0', 'l', 'b']]] },
+  { id: 'slow', title: 'SLOW 번갈아 깜빡임', text: 'A 1 s → 꺼짐 1 s → B 1 s → 꺼짐 1 s, 5번 반복. 두 LED가 번갈아 깜빡이면 양방향 switching 정상.',
+    acts: [['SLOW 0.5 mA', ['0', 'l', 's']]] },
+  { id: 'pulse', title: '1 kHz biphasic', text: '두 LED가 동시에 은은하게 켜진 것처럼 보이면 정상 (각 방향 25 % 시간, 1 kHz라 깜빡임은 안 보임). 1.0 mA.',
+    acts: [['1 kHz START 1.0 mA', ['0', 'm', 'p']]] },
+  { id: 'stop', title: 'STOP', text: '아래 빨간 STOP → 두 LED 모두 꺼짐.', acts: [['STOP', ['0']]] },
+];
 
 /* ---------- bench tests ---------- */
 const TESTS = [
@@ -120,7 +134,7 @@ async function connect() {
     parseStatus(await statusChar.readValue());
     setConnected(true);
     if (fwId !== FW_EXPECTED) notice(`보드 펌웨어가 "${fwId}"입니다. 1 kHz 출력에는 tES_Exp_v1.ino가 필요합니다.`, true);
-    else { setTest('fw', true); }
+    else { setTest('fw', true); setLed('fw', true); }
   } catch (e) {
     setConnected(false);
     notice(e.name === 'NotFoundError' ? '기기 선택이 취소되었습니다.' : '연결 실패: ' + e.message, e.name !== 'NotFoundError');
@@ -142,13 +156,14 @@ const sendSeq = cmds => cmds.reduce((p, c) => p.then(() => send(c)), Promise.res
 const startAt = x10 => sendSeq(['0', CUR_CMD[x10], 'p']);
 
 function parseStatus(dv) {
-  const [st, x10, sec, , reason] = new TextDecoder().decode(dv).trim().split(',');
-  live = { state: st, x10: Number(x10) || 0, sec: Number(sec) || 0, reason: reason || '-' };
+  const [st, x10, sec, slow, reason] = new TextDecoder().decode(dv).trim().split(',');
+  live = { state: st, x10: Number(x10) || 0, sec: Number(sec) || 0, slow: slow || '-', reason: reason || '-' };
   renderLive();
 }
 
 /* ---------- live view ---------- */
 const STATE_TEXT = { '0': 'STOP', R: 'REF only', W: '안정화 중…', A: 'HOLD A', B: 'HOLD B', S: 'SLOW', P: '1 kHz 출력 중' };
+const SLOW_PH = { A: 'A', B: 'B', o: '꺼짐' };
 const REASON_TEXT = { U: '사용자', T: '자동 정지', F: 'SLOW 완료', D: '연결 끊김', P: '전원 켜짐', '-': '' };
 
 function setBadge(cls, text) { const b = $('#connBadge'); b.className = 'badge ' + cls; b.textContent = text; }
@@ -164,15 +179,17 @@ function setConnected(on) {
   renderLive();
   renderRun();
   renderTests();
+  renderLed();
 }
 
 function currentItem() { return PLAN.find(i => !(db.run[i.id] && db.run[i.id].done)); }
 
 function renderLive() {
   const s = live.state;
-  $('#liveState').textContent = s == null ? '-' : (STATE_TEXT[s] || s) + (s === '0' && REASON_TEXT[live.reason] ? ` · ${REASON_TEXT[live.reason]}` : '');
+  const slowTxt = s === 'S' && live.slow !== '-' ? ` (${live.slow.slice(0, -1)}회 ${SLOW_PH[live.slow.slice(-1)] || ''})` : '';
+  $('#liveState').textContent = s == null ? '-' : (STATE_TEXT[s] || s) + slowTxt + (s === '0' && REASON_TEXT[live.reason] ? ` · ${REASON_TEXT[live.reason]}` : '');
   $('#liveCurrent').textContent = (live.x10 / 10).toFixed(1) + ' mA';
-  $('#liveTime').textContent = s === 'P' ? `${live.sec} s` : '-';
+  $('#liveTime').textContent = s === 'P' ? `${live.sec} s` : (s === 'A' || s === 'B' || s === 'R') ? `${live.sec} s (남은 ${Math.max(0, 30 - live.sec)} s)` : '-';
   $$('#currentChips button').forEach(b => {
     b.classList.toggle('sel', Number(b.dataset.x10) === live.x10);
     b.disabled = !cmdChar || s !== '0';
@@ -190,6 +207,7 @@ function renderLive() {
     r.className = 'ready ' + (live.sec >= wait ? 'go' : 'wait');
     r.textContent = live.sec >= wait ? `캡처 OK (출력 ${live.sec} s ≥ ${wait} s)` : `대기 중 ${live.sec} / ${wait} s`;
   } else if (s === 'W') { r.hidden = false; r.className = 'ready wait'; r.textContent = 'Reference 안정화 중 (1 s)'; }
+  else if (s === 'A' || s === 'B' || s === 'S') { r.hidden = false; r.className = 'ready wait'; r.textContent = `DC 출력 중 (${STATE_TEXT[s]}) — LED 테스트용`; }
   else { r.hidden = false; r.className = 'ready off'; r.textContent = '출력 없음'; }
   // keep the wait shown on the current run item in sync
   const w = $('#runList .item.cur .warnline.live');
@@ -198,6 +216,28 @@ function renderLive() {
 
 /* ---------- tests UI ---------- */
 function setTest(id, done) { db.tests[id] = Object.assign(db.tests[id] || {}, { done }); save(); renderTests(); }
+function setLed(id, done) { db.led[id] = Object.assign(db.led[id] || {}, { done }); save(); renderLed(); }
+
+function renderLed() {
+  $('#ledList').innerHTML = LED_TESTS.map((t, n) => {
+    const st = db.led[t.id] || {};
+    return `<div class="test${st.done ? ' done' : ''}" data-id="${t.id}">
+      <label class="test-head"><input type="checkbox" ${st.done ? 'checked' : ''}><span><b>L${n + 1}. ${t.title}</b><p>${t.text}</p></span></label>
+      ${t.acts ? `<div class="acts">${t.acts.map((a, i) => `<button data-act="${i}" ${cmdChar ? '' : 'disabled'}>${a[0]}</button>`).join('')}</div>` : ''}
+      ${inputRow('note', '메모', '', st.note, 'text')}
+    </div>`;
+  }).join('') + '<div class="row gap"><button id="ledReset" class="ghost">체크 초기화</button></div>';
+}
+
+function onLedEvent(e) {
+  if (e.target.id === 'ledReset') { if (e.type === 'click') { db.led = {}; save(); renderLed(); } return; }
+  const card = e.target.closest('.test'); if (!card) return;
+  const t = LED_TESTS.find(x => x.id === card.dataset.id);
+  const st = db.led[t.id] = db.led[t.id] || {};
+  if (e.type === 'change' && e.target.type === 'checkbox') { st.done = e.target.checked; save(); renderLed(); return; }
+  if (e.type === 'change' && e.target.dataset.k) { st.note = e.target.value.trim(); save(); return; }
+  if (e.type === 'click' && e.target.dataset.act != null) sendSeq(t.acts[Number(e.target.dataset.act)][1]);
+}
 
 function inputRow(k, label, unit, val, type) {
   const isText = type === 'text';
@@ -356,6 +396,11 @@ function runCSV() {
 
 function benchCSV() {
   const out = ['section,item,key,value'];
+  LED_TESTS.forEach(t => {
+    const s = db.led[t.id] || {};
+    out.push(['led_test', t.id, 'passed', s.done ? 'yes' : 'no'].map(esc).join(','));
+    if (s.note) out.push(['led_test', t.id, 'note', s.note].map(esc).join(','));
+  });
   TESTS.forEach(t => {
     const s = db.tests[t.id] || {};
     out.push(['bench_test', t.id, 'passed', s.done ? 'yes' : 'no'].map(esc).join(','));
@@ -393,6 +438,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#currentChips').addEventListener('click', e => { const b = e.target.closest('button'); if (b && !b.disabled) send(b.dataset.cmd); });
   $('#pulseBtn').addEventListener('click', () => send('p'));
 
+  $('#ledList').addEventListener('click', onLedEvent);
+  $('#ledList').addEventListener('change', onLedEvent);
   $('#testList').addEventListener('click', onTestEvent);
   $('#testList').addEventListener('change', onTestEvent);
   $('#runList').addEventListener('click', onRunClick);

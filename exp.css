@@ -1,6 +1,6 @@
 /* Experiment app additions on top of styles.css */
-.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 14px; }
-.tabs button { padding: 9px 4px; font-size: 14px; }
+.tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-bottom: 14px; }
+.tabs button { padding: 9px 2px; font-size: 13px; }
 .tabs button.sel { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 .wide { width: 100%; margin-top: 14px; padding: 14px; font-size: 17px; }
 .ready { margin-top: 12px; padding: 10px 12px; border-radius: 10px; font-size: 15px; font-weight: 600; }
