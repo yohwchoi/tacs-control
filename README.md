@@ -1,48 +1,38 @@
-# PNU tES Controller
+# PNU tES Diagnostic (v3)
 
-An installable Web Bluetooth bench controller for the XIAO tES system. Open **https://yohwchoi.github.io/tacs-control/** in Android Chrome.
+Web Bluetooth app for diagnosing the XIAO tES PCB step by step. Open **https://yohwchoi.github.io/tacs-control/** in Android Chrome.
 
-## Add to an Android home screen
+Pairs with firmware **`firmware/tES_Diag_v2/tES_Diag_v2.ino`** (device name `PNU_tES_Diag`). Older firmware (`PNU_tACS_Sense`) is rejected by the app.
+The previous controller (v2) is kept at git tag `legacy-v2-controller`.
 
-1. Open the address in Chrome while online.
-2. Tap **Install tES Controller** when available, or use Chrome's **⋮ → Install and create shortcut → Install**. Some versions use **Add to Home screen**.
-3. Open **tES Control** from the new icon.
+## Test flow
 
-The app files are cached after the first successful online visit. Opening the app never starts a test. Connect to the board from the app each session; a home-screen icon does not remove Bluetooth permission requirements.
+| Step | Command | Measure |
+| --- | --- | --- |
+| 1 Baseline | `0` STOP | BAT+, boost out (D2 cathode / C6), TMUX supply |
+| 2 Reference | `r` | reference voltage (expected I × 470 Ω) |
+| 3 Hold A | `a` | V_sense (top of 470 Ω) → real current, LED on? |
+| 4 Hold B | `b` | same, other direction |
+| 5 Slow | `s` | A 1 s / off / B 1 s / off × 5, visual |
 
-## Existing device controls
+Holds auto-stop after 30 s. Target current 0.5 / 1.0 / 2.0 mA (`l` / `m` / `h`, only while stopped). BLE disconnect stops the output.
+STOP opens the TMUX switches; it does **not** turn off the boost rail (TPS61170 CTRL is tied to BAT+).
 
-Power the board, turn on Bluetooth and select **Connect to XIAO**. Select the advertised device **PNU_tACS_Sense**. This is the firmware's legacy name; it is deliberately unchanged.
+Measurements are saved only in the phone browser (localStorage). Use **텍스트 복사** or **CSV 다운로드** to keep them.
 
-| Command | Existing behavior |
-| --- | --- |
-| Mode 1 | LED test |
-| Mode 2 | Load test (10 kΩ label in the main controller) |
-| Mode 3 | Boost-converter test |
-| Boost value 0–31 | Existing hardware step |
-| Stop | Mode 0, then boost step 0 if supported |
+Bench use only. Electrodes carry indicator LEDs only — no person or animal.
 
-No current, frequency, pulse-width or duration settings have been added. Their meaning and limits must be checked against the installed firmware and hardware first. The voltage table is retained from the previous controller; it is **not measured telemetry**. No output or physical stop state is inferred from a successful BLE write.
+## BLE protocol
 
-The controller supports older firmware without the boost service: basic mode/stop buttons remain available, and boost controls are disabled. The legacy `tacs_control.html` address opens the same interface as `index.html`.
+| Item | UUID | Notes |
+| --- | --- | --- |
+| Service | `19b10000-e8f2-537e-4f6c-d104768a1214` | |
+| Command | `19b10001-…` | write 1 ASCII byte: `0 r a b s l m h ?` |
+| Status | `19b10002-…` | notify, `"<state>,<mA×10>,<sec>,<slow>,<reason>"` e.g. `A,10,12,-,-` |
+| Firmware ID | `19b10003-…` | read, `tES-DIAG v2` |
+
+State: `0` STOP, `R` ref, `W` settling, `A`, `B`, `S` slow. Stop reason: `U` user, `T` 30 s timeout, `F` slow done, `D` disconnect, `P` power-on.
 
 ## Development
 
-Buildless HTML, CSS and JavaScript; no dependencies or installation required. Serve these files from localhost for development, or deploy them to HTTPS for phone access. Opening a downloaded HTML file directly is not the installation workflow.
-
-The app manifest uses relative URLs for GitHub Pages subpath compatibility. `sw.js` caches only the app shell. Increment its cache version whenever app files change. Updates wait until the prior app closes, or the user chooses **Reload update** while disconnected; the app does not reload an active connection automatically. Never persist or replay stimulation commands.
-
-Bluetooth requires a supporting browser. Android Chrome is the intended phone environment. Connection/command tests using mocks do not replace testing with the physical XIAO and bench equipment.
-
-## BLE protocol retained
-
-All writes are one-byte unsigned values using `writeValueWithResponse`.
-
-| Item | UUID |
-| --- | --- |
-| tES service | `19b10000-e8f2-537e-4f6c-d104768a1214` |
-| Mode characteristic | `19b10001-e8f2-537e-4f6c-d104768a1214` |
-| Boost service | `19b10020-e8f2-537e-4f6c-d104768a1214` |
-| Boost characteristic | `19b10021-e8f2-537e-4f6c-d104768a1214` |
-
-Reference: [Chrome Web Bluetooth](https://developer.chrome.com/docs/capabilities/bluetooth), [Android web app installation](https://support.google.com/chrome/answer/9658361?hl=en&co=GENIE.Platform%3DAndroid).
+Buildless HTML/CSS/JS. `sw.js` is network-first, so a new release appears on the next open; bump its cache name when files change.

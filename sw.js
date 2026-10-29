@@ -1,28 +1,30 @@
-/* App files only: no hardware state, commands or device data are cached. */
-const CACHE = 'pnu-tes-controller-v2-20261026-1';
+/* App shell cache only: no hardware state, commands or measurements are cached. */
+const CACHE = 'pnu-tes-diag-v3-20261029-1';
 const ASSETS = ['./', './index.html', './tacs_control.html', './app.js', './styles.css', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
-// Keep a new worker waiting while an older controller is open; no mid-session reload.
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('pnu-tes-controller-') && key !== CACHE).map(key => caches.delete(key)))));
+  event.waitUntil(caches.keys()
+    .then(keys => Promise.all(keys.filter(k => k.startsWith('pnu-tes-') && k !== CACHE).map(k => caches.delete(k))))
+    .then(() => self.clients.claim()));
 });
-self.addEventListener('message', event => {
-  if (event.data === 'ACTIVATE_UPDATE') self.skipWaiting();
-});
+/* Network first so a new release shows up on the next open; cache when offline. */
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   const scope = new URL('./', self.location.href);
   if (event.request.method !== 'GET' || url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
-  // Cache only this release's shell, preserving matching HTML/JS/CSS while a session is open.
-  event.respondWith(caches.open(CACHE).then(async cache => {
-    const cached = await cache.match(event.request, { ignoreSearch: true });
-    if (cached) return cached;
-    try { return await fetch(event.request); }
-    catch (error) {
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    try {
+      const res = await fetch(event.request);
+      if (res.ok) cache.put(event.request, res.clone());
+      return res;
+    } catch (e) {
+      const cached = await cache.match(event.request, { ignoreSearch: true });
+      if (cached) return cached;
       if (event.request.mode === 'navigate') return cache.match('./index.html');
-      throw error;
+      throw e;
     }
-  }));
+  })());
 });

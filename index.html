@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#122c34">
-  <meta name="description" content="PNU tES bench controller for XIAO Bluetooth devices.">
-  <title>PNU tES Controller</title>
+  <meta name="description" content="PNU tES PCB diagnostic app for the XIAO BLE board.">
+  <title>tES Diagnostic</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" type="image/png" href="./icons/icon-192.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
@@ -13,55 +13,136 @@
   <script src="./app.js" defer></script>
 </head>
 <body>
-  <main class="app">
-    <header class="masthead">
-      <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M5 24h9V12h10v24h10V24h9"/></svg></div>
-      <div><p class="eyebrow">PNU · BENCH CONTROL</p><h1>tES Controller</h1></div>
-      <span class="version">v2.0</span>
-    </header>
-
-    <section class="card connection" aria-labelledby="connectionTitle">
-      <div class="section-top"><h2 id="connectionTitle">Connection</h2><span id="connectionBadge" class="badge"><span class="dot"></span><span id="connectionState">Not connected</span></span></div>
-      <p id="connectionHint" class="muted">Power your XIAO, turn on Bluetooth, then choose your device.</p>
-      <button id="connectBtn" class="primary">Connect to XIAO <span aria-hidden="true">↗</span></button>
-      <p class="device-name">Device name <code>PNU_tACS_Sense</code></p>
-      <div id="notice" class="notice" role="status" aria-live="polite" hidden><strong id="noticeTitle"></strong><p id="noticeText"></p><details id="errorDetails" hidden><summary>Technical details</summary><pre id="errorTechnical"></pre></details></div>
-    </section>
-
-    <div class="workspace">
-      <section class="card tests" aria-labelledby="testsTitle">
-        <div class="section-top"><h2 id="testsTitle">Test modes</h2><span class="small-label">EXISTING FIRMWARE</span></div>
-        <p class="muted">Choose a test after connecting.</p>
-        <button class="mode" id="ledBtn" disabled><span class="mode-number">01</span><span><strong>LED test</strong><small>Check the switching sequence</small></span><span class="arrow" aria-hidden="true">↗</span></button>
-        <button class="mode" id="stimBtn" disabled><span class="mode-number">02</span><span><strong>10 kΩ load test</strong><small>Use your bench test load</small></span><span class="arrow" aria-hidden="true">↗</span></button>
-        <button class="mode" id="boostModeBtn" disabled><span class="mode-number">03</span><span><strong>Boost-converter test</strong><small>Set the existing hardware step</small></span><span class="arrow" aria-hidden="true">↗</span></button>
-        <div id="boostPanel" class="boost-panel" hidden>
-          <label for="stepInput">Target step <span class="muted">0–31</span></label>
-          <div class="step-row"><input id="stepInput" type="number" min="0" max="31" step="1" value="0" inputmode="numeric"><button id="sendBtn" class="primary" disabled>Send step</button></div>
-          <p id="stepReadout" class="step-readout">No step sent this connection.</p>
-          <p class="caption">Voltage below is a table reference, not a measurement.</p>
-          <details><summary>Step-to-voltage reference</summary><div id="voltageTable" class="voltage-table"></div></details>
-        </div>
-      </section>
-
-      <aside class="side-column">
-        <section class="card command" aria-labelledby="commandTitle">
-          <p class="eyebrow">LAST COMMAND</p><h2 id="commandTitle">Ready when you are.</h2>
-          <p id="commandDetail" class="muted" role="status" aria-live="polite">Connect to enable the controls. Device output has not been verified.</p>
-          <p class="caption">A Bluetooth write confirms delivery, not the measured output.</p>
-        </section>
-        <section class="card install" aria-labelledby="installTitle">
-          <p class="eyebrow">ONE-TAP ACCESS</p><h2 id="installTitle">Keep it on your home screen.</h2>
-          <p id="installHint" class="muted">In Android Chrome, open ⋮ → Install and create shortcut → Install. Some versions say Add to Home screen.</p>
-          <button id="installBtn" class="secondary" hidden>Install tES Controller</button>
-          <p id="offlineStatus" class="caption" role="status">Preparing offline access…</p>
-          <div id="updateNotice" hidden><p class="caption">An app update is ready. Stop the device before reloading.</p><button id="updateBtn" class="secondary">Reload update</button></div>
-        </section>
-      </aside>
+<main class="app">
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">PNU · tES BENCH</p>
+      <h1>PCB 고장진단</h1>
     </div>
+    <span class="version">v3.0</span>
+  </header>
 
-    <footer class="stop-bar"><div><strong>Stop all tests</strong><p id="stopHint">Connect to send a stop command.</p></div><button id="stopBtn" class="stop" disabled>STOP ALL</button></footer>
-    <p class="footer-note">tES · Biphasic pulse controller <span>Hardware parameters unchanged</span></p>
-  </main>
+  <!-- Connection + live status -->
+  <section class="card">
+    <div class="row between">
+      <h2>연결</h2>
+      <span id="connBadge" class="badge off">연결 안 됨</span>
+    </div>
+    <p class="muted" id="connHint">USB를 뽑고 battery로 전원을 켠 뒤 연결하세요. 기기 이름 <code>PNU_tES_Diag</code></p>
+    <div class="row gap">
+      <button id="connectBtn" class="primary">XIAO 연결</button>
+      <button id="disconnectBtn" class="ghost" hidden>연결 끊기</button>
+    </div>
+    <div id="live" class="live" hidden>
+      <div><span class="k">Firmware</span><span id="fwId" class="v">-</span></div>
+      <div><span class="k">State</span><span id="liveState" class="v">-</span></div>
+      <div><span class="k">Target</span><span id="liveCurrent" class="v">-</span></div>
+      <div><span class="k">Time</span><span id="liveTime" class="v">-</span></div>
+    </div>
+    <div id="notice" class="notice" hidden></div>
+  </section>
+
+  <!-- Test conditions -->
+  <section class="card">
+    <h2>테스트 조건</h2>
+    <div class="field">
+      <span class="label">PCB</span>
+      <div class="chips" id="pcbChips">
+        <button data-v="PCB1">PCB1</button>
+        <button data-v="PCB2">PCB2</button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="label">전원</span>
+      <div class="chips" id="powerChips">
+        <button data-v="battery">Battery only</button>
+        <button data-v="battery+USB">Battery + USB</button>
+        <button data-v="bench supply">Bench supply</button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="label">Target current <small>(STOP 상태에서만 변경)</small></span>
+      <div class="chips" id="currentChips">
+        <button data-cmd="l" data-x10="5">0.5 mA</button>
+        <button data-cmd="m" data-x10="10">1.0 mA</button>
+        <button data-cmd="h" data-x10="20">2.0 mA</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Step 1 -->
+  <section class="card step" data-step="1" data-cmd="0">
+    <div class="step-head"><span class="num">1</span><div><h2>Baseline (STOP)</h2><p class="muted">출력 꺼짐. Boost converter가 승압하는지 먼저 확인합니다.</p></div></div>
+    <button class="go">STOP 상태로 전환</button>
+    <p class="guide">DMM 검정 probe = GND</p>
+    <label class="in"><span>BAT+ <small>battery 전압</small></span><input type="number" step="0.001" inputmode="decimal" data-k="vbat" placeholder="V"></label>
+    <label class="in"><span>Boost out <small>D2 cathode / C6</small></span><input type="number" step="0.001" inputmode="decimal" data-k="vout" placeholder="V"></label>
+    <label class="in"><span>TMUX supply <small>R1 뒤 (선택)</small></span><input type="number" step="0.001" inputmode="decimal" data-k="vtmux" placeholder="V"></label>
+    <div class="verdict" hidden></div>
+    <button class="save">기록 저장</button>
+  </section>
+
+  <!-- Step 2 -->
+  <section class="card step" data-step="2" data-cmd="r">
+    <div class="step-head"><span class="num">2</span><div><h2>Reference only</h2><p class="muted">PWM reference만 켜고 출력(EN)은 꺼둡니다. MCU → RC filter 경로 확인.</p></div></div>
+    <button class="go">REF 상태로 전환</button>
+    <p class="guide">기대값 <b class="expRef">-</b> (RC capacitor / OPA320 +IN)</p>
+    <label class="in"><span>V<sub>ref</sub> <small>reference 전압</small></span><input type="number" step="0.001" inputmode="decimal" data-k="vref" placeholder="V"></label>
+    <div class="verdict" hidden></div>
+    <button class="save">기록 저장</button>
+  </section>
+
+  <!-- Step 3 -->
+  <section class="card step" data-step="3" data-cmd="a">
+    <div class="step-head"><span class="num">3</span><div><h2>Hold A</h2><p class="muted">한 방향으로 current를 계속 흘립니다 (최대 30초).</p></div></div>
+    <div class="warn boostWarn" hidden>Step 1에서 승압이 확인되지 않았습니다. LED가 꺼져 있어도 원인은 boost 쪽일 수 있습니다.</div>
+    <button class="go">HOLD A 시작</button>
+    <p class="guide">V<sub>sense</sub> 기대값 <b class="expRef">-</b> (470 Ω sense resistor 위쪽)</p>
+    <label class="in"><span>V<sub>sense</sub> <small>→ 실제 current 계산</small></span><input type="number" step="0.001" inputmode="decimal" data-k="vsense" placeholder="V"></label>
+    <label class="in"><span>Boost out <small>출력 중 (선택)</small></span><input type="number" step="0.001" inputmode="decimal" data-k="vouthold" placeholder="V"></label>
+    <div class="field"><span class="label">LED 켜짐?</span><div class="chips yn" data-k="led"><button data-v="yes">켜짐</button><button data-v="no">꺼짐</button></div></div>
+    <div class="verdict" hidden></div>
+    <button class="save">기록 저장</button>
+  </section>
+
+  <!-- Step 4 -->
+  <section class="card step" data-step="4" data-cmd="b">
+    <div class="step-head"><span class="num">4</span><div><h2>Hold B</h2><p class="muted">반대 방향. 다른 LED가 켜져야 합니다.</p></div></div>
+    <div class="warn boostWarn" hidden>Step 1에서 승압이 확인되지 않았습니다. LED가 꺼져 있어도 원인은 boost 쪽일 수 있습니다.</div>
+    <button class="go">HOLD B 시작</button>
+    <p class="guide">V<sub>sense</sub> 기대값 <b class="expRef">-</b></p>
+    <label class="in"><span>V<sub>sense</sub> <small>→ 실제 current 계산</small></span><input type="number" step="0.001" inputmode="decimal" data-k="vsense" placeholder="V"></label>
+    <label class="in"><span>Boost out <small>출력 중 (선택)</small></span><input type="number" step="0.001" inputmode="decimal" data-k="vouthold" placeholder="V"></label>
+    <div class="field"><span class="label">LED 켜짐?</span><div class="chips yn" data-k="led"><button data-v="yes">켜짐</button><button data-v="no">꺼짐</button></div></div>
+    <div class="verdict" hidden></div>
+    <button class="save">기록 저장</button>
+  </section>
+
+  <!-- Step 5 -->
+  <section class="card step" data-step="5" data-cmd="s">
+    <div class="step-head"><span class="num">5</span><div><h2>Slow alternating</h2><p class="muted">A 1초 → 꺼짐 → B 1초 → 꺼짐, 5회. 눈으로 확인.</p></div></div>
+    <button class="go">SLOW 시작</button>
+    <div class="field"><span class="label">LED A 깜빡임?</span><div class="chips yn" data-k="ledA"><button data-v="yes">예</button><button data-v="no">아니오</button></div></div>
+    <div class="field"><span class="label">LED B 깜빡임?</span><div class="chips yn" data-k="ledB"><button data-v="yes">예</button><button data-v="no">아니오</button></div></div>
+    <div class="verdict" hidden></div>
+    <button class="save">기록 저장</button>
+  </section>
+
+  <!-- Records -->
+  <section class="card">
+    <div class="row between"><h2>측정 기록</h2><span id="recCount" class="muted">0건</span></div>
+    <div id="records" class="records"><p class="muted">아직 기록이 없습니다.</p></div>
+    <div class="row gap wrap">
+      <button id="copyBtn" class="ghost">텍스트 복사</button>
+      <button id="csvBtn" class="ghost">CSV 다운로드</button>
+      <button id="clearBtn" class="ghost danger-text">기록 지우기</button>
+    </div>
+    <p class="muted small">기록은 이 폰의 브라우저에만 저장됩니다. 끝나면 복사하거나 CSV로 내려받으세요.</p>
+  </section>
+
+  <p class="foot muted small">Bench 전용. 전극에는 LED만 연결. 사람·동물 연결 금지.<br>STOP은 TMUX switch를 여는 것이며 boost rail은 꺼지지 않습니다.</p>
+</main>
+
+<div class="stopbar"><button id="stopBtn" class="stop" disabled>STOP</button></div>
 </body>
 </html>

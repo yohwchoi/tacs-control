@@ -1,9 +1,9 @@
 {
   "id": "./",
-  "name": "PNU tES Controller",
-  "short_name": "tES Control",
-  "description": "Bluetooth bench controls for the PNU XIAO tES system",
-  "lang": "en",
+  "name": "PNU tES Diagnostic",
+  "short_name": "tES Diag",
+  "description": "PNU tES PCB diagnostic app (Web Bluetooth)",
+  "lang": "ko",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

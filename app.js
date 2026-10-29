@@ -1,245 +1,306 @@
 'use strict';
-// Preserve the firmware's legacy device name, UUIDs and one-byte command protocol.
-const PROTOCOL = Object.freeze({
-  name: 'PNU_tACS_Sense',
-  service: '19b10000-e8f2-537e-4f6c-d104768a1214',
-  mode: '19b10001-e8f2-537e-4f6c-d104768a1214',
-  boostService: '19b10020-e8f2-537e-4f6c-d104768a1214',
-  boost: '19b10021-e8f2-537e-4f6c-d104768a1214'
-});
-const VOLTAGES = ['3.70 (Off)', '3.70', '3.70', '3.70', '3.70', '5.23', '6.32', '7.41', '8.50', '9.59', '10.68', '11.77', '12.86', '13.95', '15.04', '16.13', '21.05', '22.14', '23.23', '24.32', '25.41', '26.50', '27.59', '28.68', '29.77', '30.86', '31.95', '33.04', '34.13', '34.41', '34.41', '34.41'];
-const $ = id => document.getElementById(id);
-let device = null, modeChar = null, boostChar = null;
-let connecting = false, busy = false, stopPending = false, selectedMode = null, session = 0;
-let installPrompt = null, waitingWorker = null;
+/* tES PCB diagnostic app v3 — pairs with firmware tES-DIAG v2. */
 
-function notice(title, text, error = null, info = false) {
-  $('notice').hidden = false;
-  $('notice').classList.toggle('info', info);
-  $('noticeTitle').textContent = title;
-  $('noticeText').textContent = text;
-  $('errorDetails').hidden = !error;
-  $('errorTechnical').textContent = error ? `${error.name || 'Error'}: ${error.message || String(error)}` : '';
+const SVC = '19b10000-e8f2-537e-4f6c-d104768a1214';
+const CMD = '19b10001-e8f2-537e-4f6c-d104768a1214';
+const STATUS = '19b10002-e8f2-537e-4f6c-d104768a1214';
+const FW = '19b10003-e8f2-537e-4f6c-d104768a1214';
+const R_SENSE = 470;
+const HOLD_MAX_S = 30;
+const STORE_KEY = 'tes-diag-records-v1';
+
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+
+let device = null, cmdChar = null, statusChar = null;
+let writeQueue = Promise.resolve();
+let live = { state: null, x10: 10, sec: 0, slow: '-', reason: '-' };
+let selectedX10 = 10;
+let pcb = null, power = null;
+let records = loadRecords();
+let boostOk = null;  // result of step 1
+
+const STATE_TEXT = { '0': 'STOP', R: 'REF only', W: 'Settling…', A: 'HOLD A', B: 'HOLD B', S: 'SLOW' };
+const REASON_TEXT = { U: '사용자', T: '30초 자동 정지', F: 'SLOW 완료', D: '연결 끊김', P: '전원 켜짐', '-': '' };
+const STEP_FOR_STATE = { '0': '1', R: '2', A: '3', B: '4', S: '5' };
+
+/* ---------- BLE ---------- */
+function notice(text, bad = false) {
+  const n = $('#notice');
+  if (!text) { n.hidden = true; return; }
+  n.textContent = text; n.className = 'notice' + (bad ? ' bad' : ''); n.hidden = false;
 }
-function supported() { return window.isSecureContext && Boolean(navigator.bluetooth); }
-function connected() { return Boolean(device?.gatt.connected && modeChar); }
-function render() {
-  const ready = connected();
-  $('connectionState').textContent = connecting ? 'Connecting…' : ready ? 'Connected' : 'Not connected';
-  $('connectionBadge').classList.toggle('connected', ready);
-  $('connectionBadge').classList.toggle('pending', connecting);
-  $('connectBtn').disabled = connecting || ready || !supported();
-  $('connectBtn').textContent = connecting ? 'Connecting…' : ready ? 'XIAO connected' : 'Connect to XIAO ↗';
-  $('connectionHint').textContent = ready ? 'Bluetooth is connected. Select a bench test below.' : 'Power your XIAO, turn on Bluetooth, then choose your device.';
-  for (const id of ['ledBtn', 'stimBtn']) $(id).disabled = !ready || busy;
-  $('boostModeBtn').disabled = !ready || busy || !boostChar;
-  $('sendBtn').disabled = !ready || busy || !boostChar || selectedMode !== 3;
-  $('stepInput').disabled = !ready || busy || !boostChar || selectedMode !== 3;
-  $('stopBtn').disabled = !ready || stopPending;
-  $('stopBtn').textContent = stopPending ? 'STOP QUEUED' : 'STOP ALL';
-  $('stopHint').textContent = ready ? 'Sends stop; physical output is not monitored.' : 'Connect to send a stop command.';
-  $('boostPanel').hidden = selectedMode !== 3 || !ready;
-  ['ledBtn', 'stimBtn', 'boostModeBtn'].forEach((id, index) => {
-    $(id).classList.toggle('selected', selectedMode === index + 1 && ready);
-    $(id).setAttribute('aria-pressed', String(selectedMode === index + 1 && ready));
-  });
-  $('updateBtn').disabled = ready || connecting || busy;
-}
-function command(title, detail) {
-  $('commandTitle').textContent = title;
-  $('commandDetail').textContent = detail;
-}
-function friendlyError(error, stage) {
-  if (stage === 'chooser' && error.name === 'NotFoundError') return ['No device selected', 'Pairing was cancelled or no matching device was found. Check that the board advertises PNU_tACS_Sense, then try again.'];
-  if (error.name === 'NotFoundError' && stage === 'services') return ['Firmware service not found', 'The board is missing the expected tES service or control characteristic. Check the firmware before retrying.'];
-  if (error.name === 'SecurityError' || error.name === 'NotAllowedError') return ['Bluetooth access blocked', 'Allow Bluetooth access for this site in Chrome. Open this controller directly in Android Chrome using HTTPS.'];
-  if (error.name === 'NotSupportedError') return ['Bluetooth operation unsupported', 'Use current Android Chrome. If this happened after connecting, check that the board firmware supports writes with response.'];
-  if (error.name === 'NetworkError') return ['Bluetooth connection interrupted', 'Keep the board nearby and powered, and close other apps connected to it. Reconnect and check the board before sending another command.'];
-  if (error.name === 'InvalidStateError') return ['Device is not ready', 'The Bluetooth connection is unavailable. Reconnect to the board before trying again.'];
-  return [stage === 'write' ? 'Command could not be confirmed' : 'Could not connect', 'Check board power, Bluetooth and the installed firmware, then retry. Technical details are available below.'];
-}
-function disconnected() {
-  session += 1;
-  modeChar = null; boostChar = null; connecting = false; busy = false; stopPending = false; selectedMode = null;
-  $('stepReadout').textContent = 'No step sent this connection.';
-  $('stepInput').value = '0';
-  command('Connection lost.', 'No further commands can be sent. Device output is unknown; check the board before reconnecting.');
-  notice('Bluetooth disconnected', 'The app cannot confirm that the hardware stopped. Check the board. Reconnecting will not restart a test.');
-  render();
-}
+
 async function connect() {
-  if (!supported() || connecting || connected()) return;
-  connecting = true; $('notice').hidden = true; render();
-  const attempt = ++session;
-  let stage = 'chooser';
-  try {
-    if (device) device.removeEventListener('gattserverdisconnected', disconnected);
-    device = await navigator.bluetooth.requestDevice({ filters: [{ name: PROTOCOL.name }], optionalServices: [PROTOCOL.service, PROTOCOL.boostService] });
-    if (session !== attempt) return;
-    device.addEventListener('gattserverdisconnected', disconnected);
-    stage = 'connect';
-    const server = await device.gatt.connect();
-    stage = 'services';
-    const service = await server.getPrimaryService(PROTOCOL.service);
-    const discoveredMode = await service.getCharacteristic(PROTOCOL.mode);
-    let discoveredBoost = null;
-    try {
-      const boostService = await server.getPrimaryService(PROTOCOL.boostService);
-      discoveredBoost = await boostService.getCharacteristic(PROTOCOL.boost);
-    } catch (error) {
-      // Older two-mode firmware is still usable. Only a genuinely absent service is optional.
-      if (error.name !== 'NotFoundError') throw error;
-    }
-    if (session !== attempt || !device.gatt.connected) return;
-    modeChar = discoveredMode; boostChar = discoveredBoost;
-    command('Connected. No test started.', 'Select an existing test mode. Connecting does not send a stimulation command.');
-    if (!boostChar) notice('Basic controls available', 'This firmware does not expose the boost controls. LED, load-test and stop commands remain available.', null, true);
-  } catch (error) {
-    if (session === attempt) {
-      if (device) device.removeEventListener('gattserverdisconnected', disconnected);
-      if (device?.gatt.connected) device.gatt.disconnect();
-      modeChar = null; boostChar = null;
-      const [title, text] = friendlyError(error, stage);
-      notice(title, text, error);
-    }
-  } finally {
-    if (session === attempt) { connecting = false; render(); }
-  }
-}
-async function operate(action) {
-  if (!connected() || busy) return;
-  const operationSession = session;
-  busy = true; render();
-  try { await action(operationSession); }
-  catch (error) {
-    if (session === operationSession) {
-      const [title, text] = friendlyError(error, 'write');
-      notice(title, text, error);
-      command('Command unconfirmed.', 'Check the device before retrying. The app cannot determine its output.');
-    }
-  } finally {
-    if (session === operationSession) {
-      busy = false;
-      if (stopPending && connected()) await performStop();
-      render();
-    }
-  }
-}
-async function sendMode(value) {
-  await operate(async operationSession => {
-    await modeChar.writeValueWithResponse(Uint8Array.of(value));
-    if (session !== operationSession) return;
-    selectedMode = value;
-    $('notice').hidden = true;
-    const names = { 1: 'LED test', 2: '10 kΩ load test', 3: 'Boost-converter test' };
-    command(`${names[value]} command sent.`, 'The board accepted the Bluetooth write. Physical output has not been measured by this app.');
-  });
-}
-async function sendStep() {
-  const raw = $('stepInput').value.trim();
-  const step = Number(raw);
-  if (raw === '' || !Number.isInteger(step) || step < 0 || step > 31) {
-    notice('Choose a whole step from 0 to 31', 'No command was sent. Enter a valid hardware step.');
+  if (!navigator.bluetooth) {
+    notice('이 브라우저는 Bluetooth를 지원하지 않습니다. Android Chrome에서 여세요.', true);
     return;
   }
-  if (!boostChar || selectedMode !== 3) return;
-  await operate(async operationSession => {
-    await boostChar.writeValueWithResponse(Uint8Array.of(step));
-    if (session !== operationSession) return;
-    $('notice').hidden = true;
-    $('stepReadout').textContent = `Sent step ${String(step).padStart(2, '0')} · Table: ${VOLTAGES[step]} V`;
-    command(`Step ${String(step).padStart(2, '0')} command sent.`, 'The displayed voltage is a preset reference. Verify actual output with your bench equipment.');
+  try {
+    notice('');
+    setBadge('busy', '연결 중…');
+    device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SVC] }] });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(SVC);
+    cmdChar = await svc.getCharacteristic(CMD);
+    try {
+      statusChar = await svc.getCharacteristic(STATUS);
+    } catch (e) {
+      throw new Error('FW_MISMATCH');
+    }
+    try {
+      const fw = await (await svc.getCharacteristic(FW)).readValue();
+      $('#fwId').textContent = new TextDecoder().decode(fw);
+    } catch (e) { $('#fwId').textContent = '?'; }
+    statusChar.addEventListener('characteristicvaluechanged', ev => parseStatus(ev.target.value));
+    await statusChar.startNotifications();
+    parseStatus(await statusChar.readValue());
+    setConnected(true);
+  } catch (e) {
+    setConnected(false);
+    if (e.message === 'FW_MISMATCH') {
+      notice('보드에 진단 펌웨어(tES-DIAG v2)가 없습니다. tES_Diag_v2.ino를 업로드하세요.', true);
+      try { device.gatt.disconnect(); } catch (_) {}
+    } else if (e.name === 'NotFoundError') {
+      notice('기기 선택이 취소되었습니다.');
+    } else {
+      notice('연결 실패: ' + e.message, true);
+    }
+  }
+}
+
+function onDisconnected() {
+  setConnected(false);
+  notice('연결이 끊겼습니다. 펌웨어는 연결이 끊기면 자동으로 STOP 합니다.');
+}
+
+function send(ch) {
+  if (!cmdChar) return Promise.resolve();
+  const p = writeQueue.then(() => cmdChar.writeValueWithResponse(Uint8Array.of(ch.charCodeAt(0))));
+  writeQueue = p.catch(() => {});
+  return p.catch(e => notice('명령 전송 실패: ' + e.message, true));
+}
+
+function parseStatus(dv) {
+  const t = new TextDecoder().decode(dv).trim();
+  const [st, x10, sec, slow, reason] = t.split(',');
+  live = { state: st, x10: Number(x10) || 0, sec: Number(sec) || 0, slow: slow || '-', reason: reason || '-' };
+  selectedX10 = live.x10;
+  renderLive();
+}
+
+/* ---------- UI: live ---------- */
+function setBadge(cls, text) { const b = $('#connBadge'); b.className = 'badge ' + cls; b.textContent = text; }
+
+function setConnected(on) {
+  if (!on) { cmdChar = null; statusChar = null; live.state = null; }
+  setBadge(on ? 'on' : 'off', on ? '연결됨' : '연결 안 됨');
+  $('#connectBtn').hidden = on;
+  $('#disconnectBtn').hidden = !on;
+  $('#live').hidden = !on;
+  $('#stopBtn').disabled = !on;
+  $$('.step .go').forEach(b => { b.disabled = !on; });
+  renderLive();
+}
+
+function renderLive() {
+  const s = live.state;
+  $('#liveState').textContent = s == null ? '-' :
+    (STATE_TEXT[s] || s) + (s === 'S' && live.slow !== '-' ? ` (${live.slow})` : '') +
+    (s === '0' && REASON_TEXT[live.reason] ? ` · ${REASON_TEXT[live.reason]}` : '');
+  $('#liveCurrent').textContent = (live.x10 / 10).toFixed(1) + ' mA';
+  const holding = s === 'A' || s === 'B' || s === 'R';
+  $('#liveTime').textContent = s == null ? '-' : holding ? `${live.sec} s (남은 ${Math.max(0, HOLD_MAX_S - live.sec)} s)` : `${live.sec} s`;
+
+  $$('#currentChips button').forEach(b => {
+    b.classList.toggle('sel', Number(b.dataset.x10) === selectedX10);
+    b.disabled = !cmdChar || s !== '0';
+  });
+  const activeStep = STEP_FOR_STATE[s];
+  $$('.step').forEach(card => {
+    const go = $('.go', card);
+    const on = card.dataset.step === activeStep && s !== '0';
+    go.classList.toggle('active', on || (card.dataset.step === '1' && s === '0'));
+  });
+  const exp = expectedV();
+  $$('.expRef').forEach(e => { e.textContent = exp.toFixed(3) + ' V'; });
+  $$('.step').forEach(updateVerdict);
+}
+
+const expectedV = () => selectedX10 / 10 * 1e-3 * R_SENSE;
+
+/* ---------- Steps ---------- */
+function stepValues(card) {
+  const v = {};
+  $$('input[data-k]', card).forEach(i => { if (i.value !== '') v[i.dataset.k] = Number(i.value); });
+  $$('.yn', card).forEach(g => { const s = $('button.sel', g); if (s) v[g.dataset.k] = s.dataset.v; });
+  return v;
+}
+
+function judge(step, v) {
+  const exp = expectedV();
+  if (step === '1') {
+    if (v.vbat == null || v.vout == null) return null;
+    const lift = v.vout - v.vbat;
+    if (v.vbat < 3.3) return ['warn', `BAT+가 ${v.vbat} V로 낮습니다. battery 충전 상태나 BAT+ 경로를 먼저 확인하세요.`];
+    if (lift >= 1.0) return ['ok', `승압 확인: Boost out이 BAT+보다 ${lift.toFixed(2)} V 높습니다. Step 2로.`];
+    return ['bad', `승압 없음 (차이 ${lift.toFixed(2)} V). Boost converter가 스위칭하지 않습니다. LED 테스트보다 U1 pin 측정(VIN·CTRL·GND·FB)이 먼저입니다.`];
+  }
+  if (step === '2') {
+    if (v.vref == null) return null;
+    const err = (v.vref - exp) / exp;
+    if (Math.abs(err) <= 0.15) return ['ok', `Reference 정상 (기대 ${exp.toFixed(3)} V, 오차 ${(err * 100).toFixed(0)}%).`];
+    if (v.vref < 0.05) return ['bad', 'Reference가 거의 0 V입니다. XIAO D2 pin → RC filter 연결이나 pin mapping을 확인하세요.'];
+    return ['warn', `Reference가 기대값과 다릅니다 (오차 ${(err * 100).toFixed(0)}%). RC 부품 값이나 PWM 설정을 확인하세요.`];
+  }
+  if (step === '3' || step === '4') {
+    if (v.vsense == null && v.led == null) return null;
+    const iMA = v.vsense != null ? v.vsense / R_SENSE * 1000 : null;
+    const target = selectedX10 / 10;
+    const iTxt = iMA != null ? `실제 current ${iMA.toFixed(2)} mA (목표 ${target.toFixed(1)} mA). ` : '';
+    const iOk = iMA != null && Math.abs(iMA - target) / target <= 0.2;
+    const iZero = iMA != null && iMA < 0.05 * target;
+    if (iOk && v.led === 'yes') return ['ok', iTxt + '이 방향 정상.'];
+    if (iOk && v.led === 'no') return ['warn', iTxt + 'current는 흐르는데 LED가 꺼져 있습니다. LED 방향이나 전극 접촉, 다른 경로로 새는지 확인하세요.'];
+    if (iZero) return ['bad', iTxt + 'current가 흐르지 않습니다. 경로가 끊겼거나 전압이 부족합니다: TMUX supply, TMUX EN/SEL pin, MOSFET, 전극 연결 순으로 확인.'];
+    if (iMA != null && !iOk) return ['warn', iTxt + 'current가 목표와 다릅니다. Boost out이 출력 중에 처지는지(compliance 부족) 확인하세요.'];
+    return v.led === 'yes' ? ['ok', 'LED 켜짐. V_sense를 입력하면 실제 current를 계산합니다.'] : ['warn', 'LED 꺼짐. V_sense를 입력하면 원인을 좁힐 수 있습니다.'];
+  }
+  if (step === '5') {
+    if (v.ledA == null || v.ledB == null) return null;
+    if (v.ledA === 'yes' && v.ledB === 'yes') return ['ok', '양방향 switching 정상.'];
+    if (v.ledA !== v.ledB) return ['warn', '한 방향만 동작합니다. 안 되는 방향의 TMUX 채널·SEL pin을 확인하세요.'];
+    return ['bad', '양쪽 모두 안 켜집니다. Step 3/4 결과를 먼저 보세요.'];
+  }
+  return null;
+}
+
+function updateVerdict(card) {
+  const step = card.dataset.step;
+  const r = judge(step, stepValues(card));
+  const box = $('.verdict', card);
+  if (!r) { box.hidden = true; } else { box.className = 'verdict ' + r[0]; box.textContent = r[1]; box.hidden = false; }
+  if (step === '1') {
+    boostOk = r ? r[0] === 'ok' : null;
+    $$('.boostWarn').forEach(w => { w.hidden = boostOk !== false; });
+  }
+  return r;
+}
+
+/* ---------- Records ---------- */
+function loadRecords() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch (e) { return []; }
+}
+function saveRecords() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(records)); } catch (e) {}
+}
+const STEP_NAME = { '1': 'Baseline', '2': 'REF', '3': 'HOLD A', '4': 'HOLD B', '5': 'SLOW' };
+
+function addRecord(card) {
+  const step = card.dataset.step;
+  const v = stepValues(card);
+  if (!Object.keys(v).length) { notice('저장할 측정값이 없습니다.'); return; }
+  const r = judge(step, v);
+  const rec = {
+    time: new Date().toISOString(),
+    pcb: pcb || '?', power: power || '?', step: STEP_NAME[step],
+    target_mA: selectedX10 / 10, fw: $('#fwId').textContent,
+    values: v, verdict: r ? r[1] : ''
+  };
+  if (v.vsense != null) rec.values.i_mA = +(v.vsense / R_SENSE * 1000).toFixed(3);
+  records.push(rec);
+  saveRecords();
+  renderRecords();
+  notice(`${STEP_NAME[step]} 기록 저장됨.`);
+}
+
+function recLine(r) {
+  const vals = Object.entries(r.values).map(([k, x]) => `${k}=${x}`).join(' ');
+  const t = new Date(r.time);
+  const hm = t.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return { hm, text: `${r.pcb} · ${r.power} · ${r.step} · ${r.target_mA} mA · ${vals}` };
+}
+
+function renderRecords() {
+  const box = $('#records');
+  $('#recCount').textContent = records.length + '건';
+  if (!records.length) { box.innerHTML = '<p class="muted">아직 기록이 없습니다.</p>'; return; }
+  box.innerHTML = '';
+  records.slice().reverse().forEach(r => {
+    const { hm, text } = recLine(r);
+    const d = document.createElement('div');
+    d.className = 'rec';
+    const m1 = document.createElement('div'); m1.className = 'meta'; m1.textContent = hm;
+    const b = document.createElement('b'); b.textContent = text;
+    const m2 = document.createElement('div'); m2.className = 'meta'; m2.textContent = r.verdict;
+    d.append(m1, b, m2);
+    box.appendChild(d);
   });
 }
-async function performStop() {
-  const stopSession = session;
-  const stopModeChar = modeChar, stopBoostChar = boostChar;
-  busy = true; stopPending = true; render();
-  // Attempt each stop write independently, including when the first one fails.
-  const failures = [];
-  try {
-    try { await stopModeChar.writeValueWithResponse(Uint8Array.of(0)); } catch (error) { failures.push(error); }
-    if (stopBoostChar && session === stopSession && connected()) {
-      try { await stopBoostChar.writeValueWithResponse(Uint8Array.of(0)); } catch (error) { failures.push(error); }
-    }
-    if (session !== stopSession) return;
-    selectedMode = null;
-    if (failures.length) {
-      notice('Stop could not be fully confirmed', 'Check the hardware output immediately. One or more stop writes failed; use the device controls if needed.', failures[0]);
-      command('Stop unconfirmed.', 'The app cannot verify that the hardware stopped.');
-    } else {
-      $('notice').hidden = true;
-      $('stepInput').value = '0';
-      $('stepReadout').textContent = stopBoostChar ? 'Sent step 00 · Table: 3.70 (Off) V' : 'No boost service available.';
-      command('Stop commands sent.', 'The board accepted the stop write(s). Verify that the physical output has stopped.');
-    }
-  } finally {
-    if (session === stopSession) { busy = false; stopPending = false; render(); }
-  }
-}
-async function requestStop() {
-  if (!connected() || stopPending) return;
-  stopPending = true;
-  command('Sending stop…', busy ? 'Waiting for the current Bluetooth write to finish; stop is next.' : 'Sending the existing stop commands to the board.');
-  render();
-  if (!busy) await performStop();
+
+function recordsText() {
+  return records.map(r => { const { text } = recLine(r); return `${r.time}\t${text}\t${r.verdict}`; }).join('\n');
 }
 
-$('connectBtn').addEventListener('click', connect);
-$('ledBtn').addEventListener('click', () => sendMode(1));
-$('stimBtn').addEventListener('click', () => sendMode(2));
-$('boostModeBtn').addEventListener('click', () => sendMode(3));
-$('sendBtn').addEventListener('click', sendStep);
-$('stopBtn').addEventListener('click', requestStop);
-VOLTAGES.forEach((voltage, index) => {
-  const entry = document.createElement('span');
-  entry.textContent = `${String(index).padStart(2, '0')} · ${voltage} V`;
-  $('voltageTable').appendChild(entry);
-});
-if (!window.isSecureContext) notice('Open the secure app address', 'Bluetooth requires HTTPS. Use the published GitHub Pages address in Chrome.');
-else if (!navigator.bluetooth) notice('Web Bluetooth is unavailable', 'Open this app directly in Android Chrome on a phone with Bluetooth support. An embedded browser may not support device pairing.');
-render();
-
-function installed() { return window.matchMedia('(display-mode: standalone)').matches; }
-if (installed()) $('installHint').textContent = 'Installed. Open the tES Control icon from your home screen.';
-window.addEventListener('beforeinstallprompt', event => {
-  event.preventDefault(); installPrompt = event;
-  $('installBtn').hidden = installed();
-});
-$('installBtn').addEventListener('click', async () => {
-  if (!installPrompt) return;
-  const prompt = installPrompt; installPrompt = null;
-  $('installBtn').hidden = true;
-  try {
-    await prompt.prompt();
-    const choice = await prompt.userChoice;
-    if (choice.outcome !== 'accepted') $('installHint').textContent = 'Installation cancelled. You can install later from the Chrome menu.';
-  } catch {
-    $('installHint').textContent = 'Use Chrome’s ⋮ menu to install or add this controller to your home screen.';
-  }
-});
-window.addEventListener('appinstalled', () => {
-  $('installBtn').hidden = true;
-  $('installHint').textContent = 'Installed. Look for tES Control on your home screen.';
-});
-function showUpdate(worker) {
-  waitingWorker = worker; $('updateNotice').hidden = false; render();
+function recordsCSV() {
+  const keys = ['vbat', 'vout', 'vtmux', 'vref', 'vsense', 'i_mA', 'vouthold', 'led', 'ledA', 'ledB'];
+  const head = ['time', 'pcb', 'power', 'step', 'target_mA', 'fw', ...keys, 'verdict'];
+  const esc = x => { const s = x == null ? '' : String(x); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const rows = records.map(r => [r.time, r.pcb, r.power, r.step, r.target_mA, r.fw, ...keys.map(k => r.values[k]), r.verdict].map(esc).join(','));
+  return [head.join(','), ...rows].join('\n');
 }
-let updating = false;
-$('updateBtn').addEventListener('click', () => {
-  if (connected() || connecting || busy || !waitingWorker) return;
-  updating = true; waitingWorker.postMessage('ACTIVATE_UPDATE');
+
+/* ---------- Wiring ---------- */
+function chipGroup(el, onPick) {
+  el.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    $$('button', el).forEach(x => x.classList.toggle('sel', x === b));
+    onPick(b);
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  $('#connectBtn').addEventListener('click', connect);
+  $('#disconnectBtn').addEventListener('click', async () => {
+    await send('0');
+    try { device && device.gatt.disconnect(); } catch (e) {}
+  });
+  $('#stopBtn').addEventListener('click', () => send('0'));
+
+  chipGroup($('#pcbChips'), b => { pcb = b.dataset.v; });
+  chipGroup($('#powerChips'), b => { power = b.dataset.v; });
+  $('#currentChips').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    send(b.dataset.cmd);
+  });
+
+  $$('.step').forEach(card => {
+    $('.go', card).addEventListener('click', () => send(card.dataset.cmd));
+    $$('input', card).forEach(i => i.addEventListener('input', () => updateVerdict(card)));
+    $$('.yn', card).forEach(g => chipGroup(g, () => updateVerdict(card)));
+    $('.save', card).addEventListener('click', () => addRecord(card));
+  });
+
+  $('#copyBtn').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(recordsText()); notice('기록을 복사했습니다.'); }
+    catch (e) { notice('복사 실패: ' + e.message, true); }
+  });
+  $('#csvBtn').addEventListener('click', () => {
+    const blob = new Blob(['﻿' + recordsCSV()], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `tES_diag_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('#clearBtn').addEventListener('click', () => {
+    if (!records.length || !confirm('측정 기록을 모두 지울까요?')) return;
+    records = []; saveRecords(); renderRecords(); notice('기록을 지웠습니다.');
+  });
+
+  setConnected(false);
+  renderRecords();
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 });
-if ('serviceWorker' in navigator && window.isSecureContext) {
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (updating) window.location.reload(); });
-  navigator.serviceWorker.register('./sw.js').then(registration => {
-    navigator.serviceWorker.ready.then(() => { $('offlineStatus').textContent = 'App files saved for offline opening. Bluetooth pairing is still required.'; });
-    if (registration.waiting) showUpdate(registration.waiting);
-    registration.addEventListener('updatefound', () => {
-      const worker = registration.installing;
-      worker?.addEventListener('statechange', () => {
-        if (worker.state === 'installed' && navigator.serviceWorker.controller) showUpdate(worker);
-      });
-    });
-  }).catch(() => { $('offlineStatus').textContent = 'Offline access is unavailable. You can still use the app while online.'; });
-} else $('offlineStatus').textContent = 'Offline saving is unavailable in this browser.';
