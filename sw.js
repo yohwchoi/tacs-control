@@ -1,6 +1,6 @@
 /* App shell cache only: no hardware state, commands or measurements are cached. */
-const CACHE = 'pnu-tes-diag-v3-20261029-1';
-const ASSETS = ['./', './index.html', './tacs_control.html', './app.js', './styles.css', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
+const CACHE = 'pnu-tes-diag-v3-20261029-2';
+const ASSETS = ['./', './index.html', './tacs_control.html', './app.js', './styles.css', './exp.html', './exp.js', './exp.css', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
 });

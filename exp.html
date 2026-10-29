@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#122c34">
+  <meta name="description" content="PNU tES experiment app: 1 kHz biphasic output and APCMBE measurement run sheet.">
+  <title>tES Experiment</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/png" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./exp.css">
+  <script src="./exp.js" defer></script>
+</head>
+<body>
+<main class="app">
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">PNU · tES BENCH · APCMBE</p>
+      <h1>측정 실험</h1>
+    </div>
+    <span class="version">exp v1.0</span>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="ctl" class="sel">제어</button>
+    <button data-tab="test">Bench test</button>
+    <button data-tab="run">측정 순서</button>
+    <button data-tab="data">기록</button>
+  </nav>
+
+  <!-- Connection + live status (always visible) -->
+  <section class="card">
+    <div class="row between">
+      <h2>연결</h2>
+      <span id="connBadge" class="badge off">연결 안 됨</span>
+    </div>
+    <p class="muted">USB를 뽑고 battery로 켠 뒤 연결. 기기 이름 <code>PNU_tES_Exp</code>. 화면이 꺼지면 연결이 끊길 수 있으니 화면 꺼짐 시간을 길게 두세요.</p>
+    <div class="row gap">
+      <button id="connectBtn" class="primary">XIAO 연결</button>
+      <button id="disconnectBtn" class="ghost" hidden>연결 끊기</button>
+    </div>
+    <div id="live" class="live" hidden>
+      <div><span class="k">Firmware</span><span id="fwId" class="v">-</span></div>
+      <div><span class="k">State</span><span id="liveState" class="v">-</span></div>
+      <div><span class="k">Target</span><span id="liveCurrent" class="v">-</span></div>
+      <div><span class="k">출력 시간</span><span id="liveTime" class="v">-</span></div>
+    </div>
+    <div id="ready" class="ready" hidden></div>
+    <div id="notice" class="notice" hidden></div>
+  </section>
+
+  <!-- Tab: control -->
+  <section class="tab" data-tab="ctl">
+    <div class="card">
+      <h2>1 kHz biphasic 출력</h2>
+      <p class="muted">+250 µs → −250 µs → 0 A 500 µs, 반복. START를 누르면 reference 안정화 1초 뒤 출력이 시작됩니다. 10분 뒤 자동 정지.</p>
+      <div class="field">
+        <span class="label">Target current <small>(STOP 상태에서만 변경)</small></span>
+        <div class="chips" id="currentChips">
+          <button data-cmd="l" data-x10="5">0.5 mA</button>
+          <button data-cmd="m" data-x10="10">1.0 mA</button>
+          <button data-cmd="n" data-x10="15">1.5 mA</button>
+          <button data-cmd="h" data-x10="20">2.0 mA</button>
+        </div>
+      </div>
+      <button id="pulseBtn" class="primary wide">START (1 kHz biphasic)</button>
+      <p class="guide">예상 V<sub>ref</sub> <b id="expRef">-</b> · 10 kΩ에서 예상 전극 간 전압 ±<b id="expVL">-</b></p>
+    </div>
+  </section>
+
+  <!-- Tab: bench test -->
+  <section class="tab" data-tab="test" hidden>
+    <div class="card">
+      <h2>본실험 전 bench test</h2>
+      <p class="muted">R_L = 10 kΩ 하나만 연결하고 위에서부터 차례로. 모두 통과해야 측정 순서로 넘어갑니다.</p>
+      <div id="testList"></div>
+    </div>
+  </section>
+
+  <!-- Tab: run sheet -->
+  <section class="tab" data-tab="run" hidden>
+    <div class="card">
+      <div class="row between"><h2>측정 순서</h2><span id="runCount" class="muted">0 / 0</span></div>
+      <p class="muted">지금 할 항목이 위에 펼쳐집니다. Scope에 저장된 파일 이름(예: TEK0012)을 적고 <b>캡처 기록</b>을 누르세요. 나중에 이 표로 파일 이름을 바꿉니다.</p>
+      <div class="field">
+        <span class="label">보기</span>
+        <div class="chips" id="runFilter">
+          <button data-f="todo" class="sel">남은 것</button>
+          <button data-f="all">전체</button>
+        </div>
+      </div>
+      <div id="runList"></div>
+    </div>
+  </section>
+
+  <!-- Tab: data -->
+  <section class="tab" data-tab="data" hidden>
+    <div class="card">
+      <h2>R<sub>L</sub> 실측값 (DMM)</h2>
+      <p class="muted">회로에서 분리한 상태로 잰 값. CSV의 R_L_ohm 칸에 들어갑니다.</p>
+      <div id="rlList"></div>
+    </div>
+    <div class="card">
+      <h2>내보내기</h2>
+      <p class="muted">기록은 이 폰의 브라우저에만 저장됩니다. 측정이 끝나면 CSV를 내려받아 PC 작업 폴더에 넣으세요.</p>
+      <div class="row gap wrap">
+        <button id="csvBtn" class="primary">run_log CSV 다운로드</button>
+        <button id="copyBtn" class="ghost">텍스트 복사</button>
+        <button id="clearBtn" class="ghost danger-text">전체 초기화</button>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot muted small">Bench 전용. 전극 출력에는 저항 부하만 연결. 사람·동물 연결 금지.<br>STOP은 TMUX switch를 여는 것이며 boost rail은 꺼지지 않습니다.<br><a href="./">진단 앱(v3)으로</a></p>
+</main>
+
+<div class="stopbar"><button id="stopBtn" class="stop" disabled>STOP</button></div>
+</body>
+</html>
