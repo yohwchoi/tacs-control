@@ -3,7 +3,7 @@
 Web Bluetooth app for diagnosing the XIAO tES PCB step by step. Open **https://yohwchoi.github.io/tacs-control/** in Android Chrome.
 
 Pairs with firmware **`firmware/tES_Diag_v2/tES_Diag_v2.ino`** (device name `PNU_tES_Diag`). Older firmware (`PNU_tACS_Sense`) is rejected by the app.
-The previous controller (v2) is kept at git tag `legacy-v2-controller`.
+The previous controller (v2) is in git history at commit `68c83e2`.
 
 ## Test flow
 
