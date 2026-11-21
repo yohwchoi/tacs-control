@@ -7,8 +7,9 @@
  *
  * >>> Set BOARD_ID below before uploading to each board. <<<
  *
- * Hardware change needed: jumper from the top of R_sense (MOSFET source side) to XIAO D0.
- *   R_sense = 220 ohm. Without the jumper, output still works but the real-current check reads 0 % (red).
+ * Optional hardware change: jumper from the top of R_sense (MOSFET source side) to XIAO D0, then set
+ *   HAS_SENSE_JUMPER = true. R_sense = 220 ohm. Without the jumper keep it false: output works the same,
+ *   the real-current check is simply not reported (pct '-').
  *
  * Electrodes: E+ (TMUX D1) = stimulating electrode, E- (TMUX D2) = return (skull screw).
  *   SEL1=1 SEL2=1  A  anodic   (E+ rail, E- sink)
@@ -62,6 +63,7 @@
 
 /* ===== set per board ===== */
 constexpr uint8_t BOARD_ID = 1;
+constexpr bool    HAS_SENSE_JUMPER = false;   // true after soldering R_sense -> D0. false: pct is always '-'
 /* ========================= */
 
 constexpr pin_size_t PIN_REFERENCE = D2;
@@ -372,7 +374,7 @@ int16_t trainFinish() {
 bool trainDone() { return trainRunning && COUNT_TIMER->EVENTS_COMPARE[0]; }
 
 void noteWorst(int16_t p) {
-  if (p < 0) return;
+  if (p < 0 || !HAS_SENSE_JUMPER) return;
   if (worstPct < 0) { worstPct = p; return; }
   // "worst" = farthest from 100 %
   if (abs(p - 100) > abs(worstPct - 100)) worstPct = p;
@@ -513,7 +515,7 @@ void updateState() {
       holdSum += saadcReadOnce(SAADC_AIN_SENSE);
       holdN++;
       lastHoldSampleMs = now;
-      worstPct = pctFromRaw((float)holdSum / holdN);
+      if (HAS_SENSE_JUMPER) worstPct = pctFromRaw((float)holdSum / holdN);
     }
   }
 

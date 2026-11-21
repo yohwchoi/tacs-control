@@ -86,9 +86,9 @@ function onStatusText(t){
 setInterval(()=>{ if(B.connected) renderStatus(); }, 500);
 
 /* ---------------- real-current grade ---------------- */
-function grade(p){ return p==null?'none': p<20?'none': (p<80||p>120)?'low':'ok'; }
-const LAMP = {ok:'#16a34a', low:'#eab308', none:'#dc2626'};
-const GTXT = {ok:'정상', low:'범위 밖', none:'출력 없음'};
+function grade(p){ return p==null?'na': p<20?'none': (p<80||p>120)?'low':'ok'; }
+const LAMP = {ok:'#16a34a', low:'#eab308', none:'#dc2626', na:'#c9d1d3'};
+const GTXT = {ok:'정상', low:'범위 밖', none:'출력 없음', na:'측정 안 함'};
 function worse(a,b){ if(a==null) return b; if(b==null) return a; return Math.abs(b-100)>Math.abs(a-100)?b:a; }
 
 /* ---------------- logs ---------------- */
