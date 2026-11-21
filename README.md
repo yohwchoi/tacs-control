@@ -1,4 +1,21 @@
-# PNU tES Bench (v4)
+# PNU tES (v5)
+
+**Yonsei app (2026-11): https://yohwchoi.github.io/tacs-control/yonsei.html** with firmware `firmware/tES_Yonsei_v1` (device `tES-Y1-B<n>`, FW ID `tES-YONSEI v1 B<n>`). Add `?demo` to the URL to try the app without a board.
+
+## Yonsei app (yonsei.html)
+
+- Tabs **점검** (LED Test, Output Waveform Test, PBS Test, Battery Test) and **실험** (Current sweep C1–C6: 0.5–3.0 mA at 500 µs; Phase sweep P1–P5: 100–500 µs at 3.0 mA; Manual incl. 700 µs).
+- Output: 333 Hz cathodic-first symmetric biphasic on E+ (stimulating electrode), 200 pulses per burst, 5 bursts 3 s apart = 1 session. REST between pulses = both electrodes on the sink (near GND, 0 V between them); OFF between bursts.
+- Real-current check (optional): jumper from the top of R_sense (220 Ω, MOSFET source side) to XIAO D0 and `HAS_SENSE_JUMPER = true`. Each pulse is sampled; log light = green 80–120 %, yellow outside that, red < 20 % (no output), gray = not measured (no jumper).
+- Logs: 점검 and 실험 separately, saved in the phone browser. Reset (full-log screen, with confirmation) clears only the visible log; the hidden full record stays in localStorage (`tes-yonsei-log-v1`).
+- Before uploading the firmware set `BOARD_ID` at the top of the sketch.
+
+Commands (text): `S` stop · `B<I x10>,<pw us>,<bursts>` · `H+<I>` / `H-<I>` hold 30 s · `L<I>,<pw>` LED alternating · `?` status.
+Status: `<state>,<burst>,<pulse>,<pct>,<bat x100>,<reason>` (state 0/W/B/G/H/L).
+
+---
+
+## PNU tES Bench (v4)
 
 Open **https://yohwchoi.github.io/tacs-control/** in Android Chrome. Main app = toy LED test + APCMBE experiment (needs firmware `tES_Exp_v1`).
 The step-by-step DMM diagnostic app (v3) moved to **`diag.html`**.
