@@ -7,9 +7,9 @@
  *
  * >>> Set BOARD_ID below before uploading to each board. <<<
  *
- * Optional hardware change: jumper from the top of R_sense (MOSFET source side) to XIAO D0, then set
- *   HAS_SENSE_JUMPER = true. R_sense = 220 ohm. Without the jumper keep it false: output works the same,
- *   the real-current check is simply not reported (pct '-').
+ * Hardware change: jumper from the top of R_sense (MOSFET source side) to XIAO D0 (HAS_SENSE_JUMPER = true).
+ *   R_sense = 220 ohm. Before the jumper is soldered the check reads ~0 % (red light); output is unaffected.
+ *   (Set it false to hide the check on a board that will never get the jumper.)
  *
  * Electrodes: E+ (TMUX D1) = stimulating electrode, E- (TMUX D2) = return (skull screw).
  *   SEL1=1 SEL2=1  A  anodic   (E+ rail, E- sink)
@@ -63,7 +63,7 @@
 
 /* ===== set per board ===== */
 constexpr uint8_t BOARD_ID = 1;
-constexpr bool    HAS_SENSE_JUMPER = false;   // true after soldering R_sense -> D0. false: pct is always '-'
+constexpr bool    HAS_SENSE_JUMPER = true;    // false only for a board without the R_sense -> D0 jumper (pct then always '-')
 /* ========================= */
 
 constexpr pin_size_t PIN_REFERENCE = D2;
@@ -182,12 +182,15 @@ void refWriteCode(uint32_t code) {
 
 /* ---------- SAADC (register level) ---------- */
 void saadcConfig(uint8_t ain) {
+  // V_sense input gets the SAADC's internal pull-down (~160 kohm): with no jumper D0 reads 0 V (red), not noise.
+  // Against 220 ohm the pull-down changes the reading by < 0.2 %.
+  const uint32_t resp = ain == SAADC_AIN_SENSE ? SAADC_CH_CONFIG_RESP_Pulldown : SAADC_CH_CONFIG_RESP_Bypass;
   NRF_SAADC->ENABLE = 0;
   NRF_SAADC->RESOLUTION = SAADC_RESOLUTION_VAL_12bit;
   NRF_SAADC->OVERSAMPLE = 0;
   NRF_SAADC->SAMPLERATE = 0;                         // sample on task only
   for (int i = 0; i < 8; i++) { NRF_SAADC->CH[i].PSELP = 0; NRF_SAADC->CH[i].PSELN = 0; }
-  NRF_SAADC->CH[0].CONFIG = (SAADC_CH_CONFIG_RESP_Bypass << SAADC_CH_CONFIG_RESP_Pos) |
+  NRF_SAADC->CH[0].CONFIG = (resp << SAADC_CH_CONFIG_RESP_Pos) |
                             (SAADC_CH_CONFIG_RESN_Bypass << SAADC_CH_CONFIG_RESN_Pos) |
                             (SAADC_CH_CONFIG_GAIN_Gain1_6 << SAADC_CH_CONFIG_GAIN_Pos) |
                             (SAADC_CH_CONFIG_REFSEL_Internal << SAADC_CH_CONFIG_REFSEL_Pos) |
