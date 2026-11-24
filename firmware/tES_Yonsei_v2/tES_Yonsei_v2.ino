@@ -35,7 +35,7 @@
  *
  * Commands (ASCII text, BLE write or Serial line):
  *   S or 0              STOP
- *   B<I>,<pw>,<n>[,<period us>[,<gap ms>[,A|C]]]
+ *   B<I>,<pw>,<n>[,<gap s>][,A|C]   (app, short: e.g. B30,500,5,3)   or   B<I>,<pw>,<n>,<period us>[,<gap ms>][,A|C]   (Serial)
  *                       n bursts of 200 biphasic pulses. I = mA x10 (5..30), pw = phase width us (50..1000),
  *                       period = pulse period in us (default 1200, max 100000; must be >= 2*pw + 70),
  *                       gap = ms from the end of a burst to the start of the next (500..30000, default 3000).
@@ -493,11 +493,17 @@ void handleCommand(const char *s) {
     ok = parseUInt(p, i10) && *p++ == ',' && parseUInt(p, pw) && *p++ == ',' && parseUInt(p, n);
     ok = ok && n >= 1 && n <= MAX_BURSTS;
     newPeriod = DEFAULT_PERIOD_US; newGap = DEFAULT_GAP_MS;
-    if (ok && *p == ',') {                                   // optional ,<period us>[,<gap ms>]
-      p++; long per = 0;
-      ok = parseUInt(p, per) && per >= 100 && per <= (long)MAX_PERIOD_US;
-      if (ok) newPeriod = (uint32_t)per;
-      if (ok && *p == ',') { p++; long g = 0; ok = parseUInt(p, g) && g >= (long)MIN_GAP_MS && g <= (long)MAX_GAP_MS; newGap = (uint32_t)g; }
+    if (ok && *p == ',') {
+      p++; long v = 0;
+      ok = parseUInt(p, v);
+      if (ok && v <= 30) {                                   // short form (app): ,<gap s>[,A|C]  fits the 20-byte BLE write
+        newGap = (uint32_t)v * 1000UL;
+        ok = newGap >= MIN_GAP_MS && newGap <= MAX_GAP_MS;
+      } else if (ok) {                                       // long form (Serial): ,<period us>[,<gap ms>]
+        ok = v >= 100 && v <= (long)MAX_PERIOD_US;
+        if (ok) newPeriod = (uint32_t)v;
+        if (ok && *p == ',' && p[1] >= '0' && p[1] <= '9') { p++; long g = 0; ok = parseUInt(p, g) && g >= (long)MIN_GAP_MS && g <= (long)MAX_GAP_MS; newGap = (uint32_t)g; }
+      }
       if (ok && *p == ',') { p++; const char o = *p++; ok = o == 'A' || o == 'C'; newAFirst = o == 'A'; }   // ,A = + first (default), ,C = - first
     }
   } else if (c == 'H') {

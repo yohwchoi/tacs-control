@@ -26,7 +26,8 @@ const PERIOD_US = 1200, GAPS = [1,3,5,7,9];
 let WAVE = {gapS:3, order:'A'};   // order A = + phase first (Prof. Jeong's setup), C = − first
 try{ const w=JSON.parse(localStorage.getItem('tes-yonsei-wave2')||'null'); if(w&&GAPS.includes(w.gapS)) WAVE={gapS:w.gapS, order:'A'}; }catch(e){}   // + first is fixed (11/24)
 function saveWave(){ try{ localStorage.setItem('tes-yonsei-wave2', JSON.stringify(WAVE)); }catch(e){} }
-const bArgs = (i10,pw,n) => `B${i10},${pw},${n},${PERIOD_US},${WAVE.gapS*1000},${WAVE.order}`;
+// short form (BLE writes are limited to 20 bytes): B<I>,<pw>,<n>,<gap s>[,C]  e.g. B30,500,5,3
+const bArgs = (i10,pw,n) => `B${i10},${pw},${n},${WAVE.gapS}${WAVE.order==='C'?',C':''}`;
 const periodMs = () => PERIOD_US/1000;
 const S = {screen:'menu', mode:'1 session', I:3.0, pw:500, R:4.7, logOpen:null, confirm:false};
 const BAT_RUNS = 50;
