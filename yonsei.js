@@ -24,7 +24,7 @@ const E = {sweep:'G', step:0, done:{C:[],P:[],G:[]}, hist:[], mcount:0, man:null
 /* 11/24 decision: period fixed at 1.2 ms (also in the phase sweep); gap between bursts is tested at the start. */
 const PERIOD_US = 1200, GAPS = [1,3,5,7,9];
 let WAVE = {gapS:3, order:'A'};   // order A = + phase first (Prof. Jeong's setup), C = − first
-try{ const w=JSON.parse(localStorage.getItem('tes-yonsei-wave2')||'null'); if(w&&GAPS.includes(w.gapS)) WAVE={gapS:w.gapS, order:w.order==='C'?'C':'A'}; }catch(e){}
+try{ const w=JSON.parse(localStorage.getItem('tes-yonsei-wave2')||'null'); if(w&&GAPS.includes(w.gapS)) WAVE={gapS:w.gapS, order:'A'}; }catch(e){}   // + first is fixed (11/24)
 function saveWave(){ try{ localStorage.setItem('tes-yonsei-wave2', JSON.stringify(WAVE)); }catch(e){} }
 const bArgs = (i10,pw,n) => `B${i10},${pw},${n},${PERIOD_US},${WAVE.gapS*1000},${WAVE.order}`;
 const periodMs = () => PERIOD_US/1000;
