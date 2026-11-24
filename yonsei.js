@@ -208,6 +208,14 @@ function sessionPlot(g){
     `<line x1="0" y1="${y0}" x2="300" y2="${y0}" stroke="var(--grid)" stroke-dasharray="3 3"/>${bars}${arrows}</svg>`+
     `<div class="readout"><span>burst 240 ms × 5</span><span>1 session <b>${T.toFixed(1)} s</b></span></div></div>`;
 }
+/* Small waveform for the 실험 card: two pulse periods (1.2 ms each) to scale, + phase first, amplitude ∝ current. */
+function miniWave(I, pw){
+  const P=PERIOD_US, k=84/P, h=4+20*I/3, y=34, x0=8; let d=`M0,${y} L${x0},${y}`;
+  for(let n=0;n<2;n++){ const x=x0+n*P*k, a=x+pw*k, b=a+pw*k;
+    d+=` L${x},${y-h} L${a.toFixed(1)},${y-h} L${a.toFixed(1)},${y+h} L${b.toFixed(1)},${y+h} L${b.toFixed(1)},${y} L${(x+P*k).toFixed(1)},${y}`; }
+  return `<svg class="mini" viewBox="0 0 186 68" role="img" aria-label="파형"><line x1="0" y1="${y}" x2="186" y2="${y}" stroke="var(--grid)" stroke-dasharray="3 3"/>`+
+    `<path d="${d} L186,${y}" fill="none" stroke="var(--wave)" stroke-width="2"/><text x="186" y="66" text-anchor="end">1.2 ms 주기</text></svg>`;
+}
 function measTag(){
   if(B.pct==null) return '';
   const g=grade(B.pct);
@@ -307,17 +315,18 @@ function expId(){ return E.sweep==='M' ? 'M' : ''; }
 function elTxt(){ return E.el ? (E.el.type==='F'?'Flat ':'Porous ')+E.el.n : '—'; }
 function renderExp(m){
   const dis = run ? 'disabled' : '';
-  let who = `<div class="who"><button type="button" data-edit="rat" ${dis}><span>Rat</span><b>${E.rat??'—'}</b></button><button type="button" data-edit="el" ${dis}><span>전극</span><b>${elTxt()}</b></button></div>`;
+  let who = `<div class="who"><button type="button" data-edit="rat" ${dis}><span>Rat</span><b>${E.rat??'—'}</b></button><button type="button" data-edit="el" ${dis}><span>Electrode</span><b>${elTxt()}</b></button></div>`;
   if(E.edit){
     const isEl=E.edit.k==='el';
-    who = `<div class="edit"><div class="lbl" style="margin:0">${isEl?'전극':'Rat'} 번호</div>`+
+    who = `<div class="edit"><div class="lbl" style="margin:0">${isEl?'Electrode':'Rat'} 번호</div>`+
       (isEl?`<div class="seg" style="grid-template-columns:1fr 1fr">${[['F','Flat'],['P','Porous']].map(([k,t])=>`<button type="button" data-eltype="${k}" class="${E.edit.type===k?'on':''}">${t}</button>`).join('')}</div>`:'')+
       `<input id="numin" type="number" inputmode="numeric" min="1" value="${E.edit.n??''}" aria-label="번호">`+
       `<div class="row2"><button type="button" class="btn ghost" data-editcancel>취소</button><button type="button" class="btn" data-editok>확인</button></div></div>`;
   }
   const manual = E.sweep==='M';
   if(!run && !manual){ S.I=GRID_I[E.gi]; S.pw=GRID_PW[E.gp]; }
-  const bar = `<div class="xbar"><button type="button" data-wopen ${dis}>Burst 간격 <b>${WAVE.gapS} s</b> ›</button><button type="button" data-mopen ${dis}>${manual?'<b>Manual</b>':'Manual'} ›</button></div>`;
+  const nLog = LOG.exp.view.filter(r=>!r.sep).length;
+  const bar = `<div class="xbar"><button type="button" data-wopen ${dis}>Burst interval <b>${WAVE.gapS} s</b> ›</button><button type="button" data-mopen ${dis}>${manual?'<b>Manual</b>':'Manual'} ›</button><button type="button" data-logopen="exp">Log${nLog?' '+nLog:''} ›</button></div>`;
   const tier1 = (ci,pi) => pi===4 || ci===5;
   const last=E.hist[E.hist.length-1], prev=E.hist.length>1?E.hist[0]:null;
   const grid = `<div class="grid"><span></span>${GRID_I.map(i=>`<span class="gh">${i.toFixed(1)}</span>`).join('')}`+
@@ -326,10 +335,11 @@ function renderExp(m){
       const h = k===last ? ' last' : k===prev ? ' prev' : '';
       return `<button type="button" class="cell${tier1(ci,pi)?' t1':''}${done?' done':''}${h}${cur?' cur':''}" data-cell="${k}" ${dis} aria-label="${i} mA ${w} µs">${done?'✓':''}</button>`;
     }).join('')).join('')+`</div>`;
-  const card = `<div class="now2"><span class="cond">${S.I.toFixed(1)} <small>mA</small> · ${S.pw} <small>µs</small></span>${manual?'<span class="mtag">Manual</span>':''}</div>`;
+  const card = `<button type="button" class="now2" data-wave>${manual?'<span class="mtag">Manual</span>':''}<span class="cond">${S.I.toFixed(1)}<small> mA</small></span><span class="cond">${S.pw}<small> µs</small></span></button>`;
+  const waveModal = E.showWave ? `<div class="modal" data-waveclose><div class="box" style="text-align:left">${wave()}<button type="button" class="btn ghost" data-waveclose>닫기</button></div></div>` : '';
   const W = E.wmodal, M = E.man;
   const wModal = W ? `<div class="modal"><div class="box" style="text-align:left">`+
-    `<div><div class="lbl">Burst 간격</div><div class="chips">${GAPS.map(g=>`<button type="button" class="chip${g===W.gapS?' on':''}" data-gap="${g}">${g} s</button>`).join('')}</div></div>`+
+    `<div><div class="lbl">Burst interval</div><div class="chips">${GAPS.map(g=>`<button type="button" class="chip${g===W.gapS?' on':''}" data-gap="${g}">${g} s</button>`).join('')}</div></div>`+
     sessionPlot(W.gapS)+
     `<div class="row2"><button type="button" class="btn ghost" data-wcancel>취소</button><button type="button" class="btn" data-wok>확인</button></div></div></div>` : '';
   const mModal = M ? `<div class="modal"><div class="box" style="text-align:left"><b>Manual</b>`+
@@ -338,12 +348,13 @@ function renderExp(m){
     `<div class="row2"><button type="button" class="btn ghost" data-mcancel>취소</button><button type="button" class="btn" data-mok>확인</button></div></div></div>` : '';
   const focus = document.activeElement && document.activeElement.id==='numin';
   m.innerHTML = who + bar + grid + card + (run ? progress() : '') +
-    `<button type="button" class="btn big" id="run" ${run||!B.connected?'disabled':''}>${run?'출력 중…':'시작'}</button>` + logBlock('exp', 2) + wModal + mModal;
+    `<button type="button" class="btn big" id="run" ${run||!B.connected?'disabled':''}>${run?'출력 중…':'Start'}</button>` + wModal + mModal + waveModal;
   if(E.edit && !focus){ const i=$('numin'); if(i) i.focus(); }
 }
 
 function setWho(k, val){
   if(k==='rat') E.rat=val; else E.el=val;
+  E.done={C:[],P:[],G:[]}; E.hist=[];                  // new Rat/electrode = new session: clear grid marks (log keeps everything)
   const sep=`Rat ${E.rat??'—'} · ${elTxt()}`;
   const v=LOG.exp.view; if(v.length && v[v.length-1].sep) v.pop();
   v.push({sep}); LOG.exp.all.push({sep, t:nowT(), d:new Date().toISOString()}); saveLog();
@@ -368,12 +379,14 @@ document.addEventListener('click', e=>{
   const sw=T('[data-sw]'); if(sw && !sw.disabled){ E.sweep=sw.dataset.sw; render(); return; }
   const st=T('[data-st]'); if(st && !st.disabled){ E.step=+st.dataset.st; render(); return; }
   const cell=T('[data-cell]'); if(cell && !cell.disabled){ const [ci,pi]=cell.dataset.cell.split(',').map(Number); E.gi=ci; E.gp=pi; E.sweep='G'; render(); return; }
+  if(T('[data-wave]')){ E.showWave=true; render(); return; }
+  if(T('[data-waveclose]')){ E.showWave=false; render(); return; }
   if(T('[data-wopen]') && !run){ E.wmodal={gapS:WAVE.gapS}; render(); return; }
   const gp=T('[data-gap]'); if(gp && E.wmodal){ E.wmodal.gapS=+gp.dataset.gap; render(); return; }
   if(T('[data-wcancel]')){ E.wmodal=null; render(); return; }
   if(T('[data-wok]')){ const g=E.wmodal.gapS; E.wmodal=null;
     if(g!==WAVE.gapS){ WAVE.gapS=g; saveWave();
-      const sep=`Burst 간격 ${g} s`; LOG.exp.view.push({sep}); LOG.exp.all.push({sep,t:nowT(),d:new Date().toISOString()}); saveLog(); }
+      const sep=`Burst interval ${g} s`; LOG.exp.view.push({sep}); LOG.exp.all.push({sep,t:nowT(),d:new Date().toISOString()}); saveLog(); }
     render(); return; }
   if(T('[data-mopen]') && !run){ E.man={I:S.I, pw:S.pw}; render(); return; }
   if(T('[data-mcancel]')){ E.man=null; render(); return; }
