@@ -148,7 +148,7 @@ function finishRun(reason){
     else if(completed && !E.done[r.sweep].includes(r.step)) E.done[r.sweep].push(r.step);
     if(completed && r.sweep!=='M' && r.sweep!=='G'){           // same condition in Grid counts too
       const k=`${GRID_I.indexOf(r.I)},${GRID_PW.indexOf(r.pw)}`; if(!k.includes('-1') && !E.done.G.includes(k)) E.done.G.push(k); }
-    if(r.sweep==='G'){ E.hist=E.hist.filter(x=>x!==r.step); E.hist.push(r.step); if(E.hist.length>2) E.hist.shift(); }
+    if(r.sweep==='G'){ const h=E.hist.filter(x=>x!==r.step); h.push(r.step); if(h.length>2) h.shift(); E.hist.splice(0,E.hist.length,...h); }
     if(completed && r.sweep==='G'){
       const [ci,pi]=r.step.split(',').map(Number);
       if(pi===4 && !E.done.C.includes(ci)) E.done.C.push(ci);
@@ -329,8 +329,8 @@ function renderExp(m){
   const bar = `<div class="xbar"><button type="button" data-wopen ${dis}>Burst interval <b>${WAVE.gapS} s</b> ›</button><button type="button" data-mopen ${dis}>${manual?'<b>Manual</b>':'Manual'} ›</button><button type="button" data-logopen="exp">Log${nLog?' '+nLog:''} ›</button></div>`;
   const tier1 = (ci,pi) => pi===4 || ci===5;
   const last=E.hist[E.hist.length-1], prev=E.hist.length>1?E.hist[0]:null;
-  const grid = `<div class="grid"><span></span>${GRID_I.map(i=>`<span class="gh">${i.toFixed(1)}</span>`).join('')}`+
-    GRID_PW.map((w,pi)=>`<span class="gh">${w}</span>`+GRID_I.map((i,ci)=>{
+  const grid = `<div class="grid"><span></span>${GRID_I.map(i=>`<span class="gh">${i.toFixed(1)}<small>mA</small></span>`).join('')}`+
+    GRID_PW.map((w,pi)=>`<span class="gh">${w}<small>µs</small></span>`+GRID_I.map((i,ci)=>{
       const k=`${ci},${pi}`, done=E.done.G.includes(k), cur=!manual&&ci===E.gi&&pi===E.gp;
       const h = k===last ? ' last' : k===prev ? ' prev' : '';
       return `<button type="button" class="cell${tier1(ci,pi)?' t1':''}${done?' done':''}${h}${cur?' cur':''}" data-cell="${k}" ${dis} aria-label="${i} mA ${w} µs">${done?'✓':''}</button>`;
@@ -354,7 +354,11 @@ function renderExp(m){
 
 function setWho(k, val){
   if(k==='rat') E.rat=val; else E.el=val;
-  E.done={C:[],P:[],G:[]}; E.hist=[];                  // new Rat/electrode = new session: clear grid marks (log keeps everything)
+  // Each Rat × electrode pair has its own grid marks: a new pair starts empty, going back shows its marks again.
+  const key=`${E.rat??'-'}|${E.el?E.el.type+E.el.n:'-'}`;
+  E.marks = E.marks || {};
+  if(!E.marks[key]) E.marks[key]={done:{C:[],P:[],G:[]}, hist:[]};
+  E.done=E.marks[key].done; E.hist=E.marks[key].hist;
   const sep=`Rat ${E.rat??'—'} · ${elTxt()}`;
   const v=LOG.exp.view; if(v.length && v[v.length-1].sep) v.pop();
   v.push({sep}); LOG.exp.all.push({sep, t:nowT(), d:new Date().toISOString()}); saveLog();
