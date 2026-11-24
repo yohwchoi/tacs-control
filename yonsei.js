@@ -276,6 +276,10 @@ function renderStatus(){
 function render(){
   renderStatus();
   const m = $('main');
+  // Status notifications re-render the screen several times a second. While a number box is open and being typed in
+  // (Rat / Electrode number, Manual mA / µs), keep the screen as it is so the phone keyboard stays open.
+  const ae = document.activeElement;
+  if((E.edit || E.man) && ae && ae.tagName==='INPUT' && m.contains(ae)) return;
   $('tabC').className = S.screen==='exp' ? '' : 'on'; $('tabE').className = S.screen==='exp' ? 'on' : '';
   if(S.logOpen){ logFull(m, S.logOpen); return; }
   if(S.screen==='exp'){ renderExp(m); return; }
@@ -387,7 +391,7 @@ document.addEventListener('click', e=>{
   const go=T('[data-go]'); if(go){ if(run) return; S.logOpen=null; S.screen=go.dataset.go; if(S.screen==='led'){S.I=3.0; S.pw=500;} render(); return; }
   const c=T('.chip[data-k]'); if(c && !c.disabled){ const k=c.dataset.k, v=c.dataset.v; S[k]=isNaN(+v)?v:+v; render(); return; }
   const ed=T('[data-edit]'); if(ed && !ed.disabled){ const k=ed.dataset.edit; E.edit={k, n:k==='rat'?E.rat:E.el?.n, type:E.el?.type||'P'}; render(); return; }
-  const et=T('[data-eltype]'); if(et){ E.edit.n=$('numin').value||null; E.edit.type=et.dataset.eltype; render(); return; }
+  const et=T('[data-eltype]'); if(et){ E.edit.n=$('numin').value||null; document.activeElement.blur(); E.edit.type=et.dataset.eltype; render(); return; }
   if(T('[data-editcancel]')){ E.edit=null; render(); return; }
   if(T('[data-editok]')){ const n=parseInt($('numin').value,10); if(n>0){ setWho(E.edit.k, E.edit.k==='rat'?n:{type:E.edit.type,n}); } E.edit=null; render(); return; }
   const sw=T('[data-sw]'); if(sw && !sw.disabled){ E.sweep=sw.dataset.sw; render(); return; }

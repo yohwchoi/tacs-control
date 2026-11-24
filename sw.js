@@ -1,5 +1,5 @@
 /* App shell cache only: no hardware state, commands or measurements are cached. */
-const CACHE = 'pnu-tes-v6-20261124-5';
+const CACHE = 'pnu-tes-v6-20261124-6';
 const ASSETS = ['./', './index.html', './diag.html', './tacs_control.html', './app.js', './styles.css', './exp.html', './exp.js', './exp.css', './yonsei.html', './yonsei.js', './yonsei.webmanifest', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
