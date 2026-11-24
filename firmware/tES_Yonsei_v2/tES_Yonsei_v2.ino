@@ -42,7 +42,11 @@
  *                       A = anodic (+) phase first (default), C = cathodic (-) first.
  *                       e.g. B30,500,5 = 3.0 mA, 500 us, 1.2 ms, 3 s gaps, + first;  B30,500,5,1200,7000,C = 7 s gaps, - first
  *   H+<I> / H-<I>       HOLD anodic / cathodic DC (max 30 s)
- *   L<I>,<pw>           LED test: 167 cathodic-only pulses (0.5 s), then 167 anodic-only, repeating (max 120 s)
+ *   L<I>,<pw>           LED test (LED jig only, never an animal): 167 cathodic-only pulses (0.5 s), then 167 anodic-only,
+ *                       repeating (max 120 s). I up to 10.0 mA (L100,500), capped by the board: about 6 mA with 470 ohm,
+ *                       10 mA with 220 ohm (reference limit 2.9 V on R_sense).
+ *
+ * Board LEDs: blue on = phone connected; green short blink every 2 s = waiting for the phone; red on = output running.
  *   ?                   send status now
  *   Start commands are accepted only when stopped. Anything else = STOP (reason E).
  *
@@ -88,7 +92,10 @@ constexpr float    PWM_COUNTS      = 4096.0f;
 #define REF_PWM NRF_PWM2
 
 constexpr uint8_t  MIN_CURRENT_X10 = 5;
-constexpr uint8_t  MAX_CURRENT_X10 = 30;      // 3.0 mA
+constexpr uint8_t  MAX_CURRENT_X10 = 30;      // 3.0 mA (B and H)
+constexpr uint8_t  LED_REQ_MAX_X10 = 100;     // LED test may ask up to 10.0 mA
+constexpr float    REF_MAX_V       = 2.9f;    // keep the reference below 3.3 V
+constexpr uint8_t  LED_CAP_X10     = (REF_MAX_V / R_SENSE_OHM * 10000.0f) < 100.0f ? (uint8_t)(REF_MAX_V / R_SENSE_OHM * 10000.0f) : 100;
 constexpr uint16_t MIN_PW_US       = 50;
 constexpr uint16_t MAX_PW_US       = 1000;
 constexpr uint8_t  MAX_BURSTS      = 10;
@@ -503,7 +510,8 @@ void handleCommand(const char *s) {
     newPeriod = LED_PERIOD_US;
   }
   while (ok && (*p == ' ' || *p == '\r' || *p == '\n')) p++;
-  ok = ok && *p == 0 && i10 >= MIN_CURRENT_X10 && i10 <= MAX_CURRENT_X10 && pw >= MIN_PW_US && pw <= MAX_PW_US;
+  const long maxI10 = c == 'L' ? LED_REQ_MAX_X10 : MAX_CURRENT_X10;
+  ok = ok && *p == 0 && i10 >= MIN_CURRENT_X10 && i10 <= maxI10 && pw >= MIN_PW_US && pw <= MAX_PW_US;
   ok = ok && newPeriod <= MAX_PERIOD_US && newPeriod >= T_LEAD_US + 2 * (uint32_t)pw + 50;   // both phases + rest fit
   if (!ok) {
     Serial.print("Bad command: ");
@@ -511,6 +519,7 @@ void handleCommand(const char *s) {
     stopAll('E');
     return;
   }
+  if (c == 'L' && i10 > LED_CAP_X10) i10 = LED_CAP_X10;   // what this board's R_sense allows
   currentX10 = (uint8_t)i10;
   pwUs = (uint16_t)pw;
   periodUs = newPeriod;                      // H uses the default, L uses LED_PERIOD_US
@@ -577,6 +586,10 @@ void setup() {
 
   digitalWrite(LED_BUILTIN, HIGH);
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LEDG, HIGH);                  // board LEDs are active low
+  pinMode(LEDG, OUTPUT);
+  digitalWrite(LEDB, HIGH);
+  pinMode(LEDB, OUTPUT);
   Serial.begin(115200);
 
   snprintf(FW_ID, sizeof(FW_ID), "tES-YONSEI v2 B%u R%u", (unsigned)BOARD_ID, (unsigned)R_SENSE_OHM);
@@ -585,7 +598,7 @@ void setup() {
 
   if (BLE.begin()) {
     char name[12];
-    snprintf(name, sizeof(name), "tES-Y1-B%u", (unsigned)BOARD_ID);
+    snprintf(name, sizeof(name), "tES-Y2-B%u", (unsigned)BOARD_ID);
     BLE.setLocalName(name);
     BLE.setDeviceName(name);
     BLE.setAdvertisedService(ySvc);
@@ -607,10 +620,13 @@ void loop() {
   static uint8_t lineLen = 0;
   const bool serialOpen = static_cast<bool>(Serial);
   if (serialOpen && !serialWasOpen) {
-    Serial.println("\n=== tES-YONSEI v1 ===");
+    Serial.println("\n=== tES-YONSEI v2 ===");
     Serial.println(FW_ID);
     Serial.println(bleReady ? "BLE ready" : "BLE init FAILED (Serial control only)");
-    Serial.println("S stop | B<I x10>,<pw us>,<bursts> | H+<I> H-<I> | L<I>,<pw> | ?   e.g. B30,500,5");
+    Serial.println("S stop | B<I x10>,<pw us>,<bursts>[,<period us>[,<gap ms>[,A|C]]] | H+<I> H-<I> | L<I>,<pw> | ?   e.g. B30,500,5");
+    Serial.print("LED test max ");
+    Serial.print(LED_CAP_X10 / 10.0f, 1);
+    Serial.println(" mA on this board");
     sendStatus();
   }
   serialWasOpen = serialOpen;
@@ -640,6 +656,9 @@ void loop() {
     }
     wasConnected = connected;
     if (connected && cmdChar.written()) handleCommand(cmdChar.value().c_str());
+    // board LEDs: blue = phone connected, green blink = waiting for the phone
+    digitalWrite(LEDB, connected ? LOW : HIGH);
+    digitalWrite(LEDG, (!connected && millis() % 2000 < 120) ? LOW : HIGH);
   }
 
   updateState();

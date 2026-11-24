@@ -115,7 +115,7 @@ function startRun(){
   if(run || !B.connected) return;
   const i10 = Math.round(S.I*10);
   let cmd, kind='out', bursts=5, sessions=1;
-  if(S.screen==='led'){ cmd=`L30,500`; kind='led'; bursts=0; }
+  if(S.screen==='led'){ cmd=`L100,500`; kind='led'; bursts=0; }
   else if(S.screen==='scope'){
     if(S.mode==='HOLD +') { cmd=`H+${i10}`; kind='hold'; bursts=0; }
     else if(S.mode==='HOLD −') { cmd=`H-${i10}`; kind='hold'; bursts=0; }
@@ -158,7 +158,7 @@ function finishRun(reason){
 }
 const fmtV = v => v==null ? '?' : v.toFixed(2)+' V';
 function cond(){
-  if(S.screen==='led') return '3.0 mA · ± 교대';
+  if(S.screen==='led') return '10 mA · ± 교대';
   if(S.screen==='safe') return `1 session × ${BAT_RUNS}`;
   if(S.screen==='scope' && S.mode.startsWith('HOLD')) return `${S.mode} ${S.I.toFixed(1)} mA`;
   const base = `${S.I.toFixed(1)} mA · ${S.pw} µs`;
@@ -288,7 +288,7 @@ function render(){
     const lit = p => on && ((p==='−')===(B.burst===1));
     m.innerHTML = head('1 · LED Test') +
       `<div class="scope" style="display:flex;justify-content:center;gap:40px;padding:20px">${['+','−'].map(p=>`<div style="text-align:center"><div style="width:40px;height:40px;border-radius:50%;margin:0 auto 4px;background:${lit(p)?'#ef4444':'var(--grid)'};box-shadow:${lit(p)?'0 0 14px #ef4444':'none'}"></div><small class="muted">LED ${p}</small></div>`).join('')}</div>` +
-      `<div class="readout"><span>고정: <b>3.0 mA</b> · 500 µs pulse</span><span>− 방향 0.5 s → + 방향 0.5 s 번갈아 반복</span></div>` +
+      `<div class="readout"><span>고정: <b>약 10 mA</b> · 500 µs pulse (470 Ω 보드는 약 6 mA까지)</span><span>− 방향 0.5 s → + 방향 0.5 s 번갈아 반복</span><span style="color:var(--warn)">LED 지그 전용 · 동물에 연결하지 마세요</span></div>` +
       progress() + runBtn('깜빡이기 시작') + logBlock('chk');
   } else if(S.screen==='scope'){
     const V=(S.I*S.R).toFixed(1);
