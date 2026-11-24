@@ -9,7 +9,7 @@ const CMD = '19b10101-e8f2-537e-4f6c-d104768a1214';
 const STA = '19b10102-e8f2-537e-4f6c-d104768a1214';
 const FW  = '19b10103-e8f2-537e-4f6c-d104768a1214';
 let R_SENSE = 470;   // updated from the board's FW ID ("... R470" / "... R220")
-const V_LIMIT = 33, BAT_LOW = 3.5, STALE_MS = 2000;
+const V_LIMIT = 30, BAT_LOW = 3.5, STALE_MS = 2000;
 const DEMO = new URLSearchParams(location.search).has('demo');
 
 const MENU = [
@@ -155,6 +155,7 @@ function finishRun(reason){
       if(pi===4 && !E.done.C.includes(ci)) E.done.C.push(ci);
       if(ci===5 && !E.done.P.includes(pi)) E.done.P.push(pi);
     }
+    saveExp();
   }
 }
 const fmtV = v => v==null ? '?' : v.toFixed(2)+' V';
@@ -298,7 +299,7 @@ function render(){
       chips('전류 (mA)','I',[0.5,1.0,1.5,2.0,2.5,3.0],v=>v.toFixed(1)) +
       chips('Phase (µs)','pw',[100,200,300,400,500],v=>v,()=>S.mode.startsWith('HOLD')) +
       chips('부하 저항 (kΩ)','R',[1,4.7,10,15]) +
-      wave() + `<div class="readout"><span>scope 예상: 저항 양단 <b>±${V} V</b></span>${S.I*S.R>V_LIMIT?'<span style="color:var(--warn)">전압 한계(≈33 V) 넘음</span>':''}</div>` +
+      wave() + `<div class="readout"><span>scope 예상: 저항 양단 <b>±${V} V</b></span>${S.I*S.R>V_LIMIT?'<span style="color:var(--warn)">전압 한계(약 30 V) 넘음 · 전류가 덜 나와요</span>':''}</div>` +
       progress() + runBtn(S.mode.startsWith('HOLD')?'HOLD 시작 (30 s)':'출력') + logBlock('chk');
   } else if(S.screen==='pbs'){
     m.innerHTML = head('3 · PBS Test') +
@@ -353,13 +354,21 @@ function renderExp(m){
   if(E.edit && !focus){ const i=$('numin'); if(i) i.focus(); }
 }
 
-function setWho(k, val){
-  if(k==='rat') E.rat=val; else E.el=val;
-  // Each Rat × electrode pair has its own grid marks: a new pair starts empty, going back shows its marks again.
+const EXP_KEY = 'tes-yonsei-exp-v2';
+function saveExp(){ try{ localStorage.setItem(EXP_KEY, JSON.stringify({rat:E.rat, el:E.el, marks:E.marks||{}, gi:E.gi, gp:E.gp, mcount:E.mcount})); }catch(e){} }
+function bindMarks(){
   const key=`${E.rat??'-'}|${E.el?E.el.type+E.el.n:'-'}`;
   E.marks = E.marks || {};
   if(!E.marks[key]) E.marks[key]={done:{C:[],P:[],G:[]}, hist:[]};
   E.done=E.marks[key].done; E.hist=E.marks[key].hist;
+}
+try{ const v=JSON.parse(localStorage.getItem(EXP_KEY)||'null');
+  if(v){ E.rat=v.rat??null; E.el=v.el??null; E.marks=v.marks||{}; if(Number.isInteger(v.gi)) E.gi=v.gi; if(Number.isInteger(v.gp)) E.gp=v.gp; E.mcount=v.mcount||0; } }catch(e){}
+bindMarks();
+function setWho(k, val){
+  if(k==='rat') E.rat=val; else E.el=val;
+  // Each Rat × electrode pair has its own grid marks: a new pair starts empty, going back shows its marks again.
+  bindMarks(); saveExp();
   const sep=`Rat ${E.rat??'—'} · ${elTxt()}`;
   const v=LOG.exp.view; if(v.length && v[v.length-1].sep) v.pop();
   v.push({sep}); LOG.exp.all.push({sep, t:nowT(), d:new Date().toISOString()}); saveLog();
@@ -383,7 +392,7 @@ document.addEventListener('click', e=>{
   if(T('[data-editok]')){ const n=parseInt($('numin').value,10); if(n>0){ setWho(E.edit.k, E.edit.k==='rat'?n:{type:E.edit.type,n}); } E.edit=null; render(); return; }
   const sw=T('[data-sw]'); if(sw && !sw.disabled){ E.sweep=sw.dataset.sw; render(); return; }
   const st=T('[data-st]'); if(st && !st.disabled){ E.step=+st.dataset.st; render(); return; }
-  const cell=T('[data-cell]'); if(cell && !cell.disabled){ const [ci,pi]=cell.dataset.cell.split(',').map(Number); E.gi=ci; E.gp=pi; E.sweep='G'; render(); return; }
+  const cell=T('[data-cell]'); if(cell && !cell.disabled){ const [ci,pi]=cell.dataset.cell.split(',').map(Number); E.gi=ci; E.gp=pi; E.sweep='G'; saveExp(); render(); return; }
   if(T('[data-wave]')){ E.showWave=true; render(); return; }
   if(T('[data-waveclose]')){ E.showWave=false; render(); return; }
   if(T('[data-wopen]') && !run){ E.wmodal={gapS:WAVE.gapS}; render(); return; }
@@ -408,7 +417,7 @@ function applyManual(){
 
 /* ---------------- demo board (?demo) ---------------- */
 class SimBoard {
-  constructor(cb){ this.cb=cb; this.st='0'; this.burst=0; this.pulse=0; this.pct=null; this.bat=395; this.reason='P'; this.tick=setInterval(()=>this.step(),200); this.emit(); }
+  constructor(cb){ this.cb=cb; this.t=0; this.st='0'; this.burst=0; this.pulse=0; this.pct=null; this.bat=395; this.reason='P'; this.tick=setInterval(()=>this.step(),200); this.emit(); }
   emit(){ this.cb(`${this.st},${this.burst},${this.pulse},${this.pct??'-'},${this.bat},${this.st==='0'?this.reason:'-'}`); }
   write(t){
     const c=t[0];
@@ -416,7 +425,7 @@ class SimBoard {
     if(c==='S'||c==='0'){ this.stop('U'); return; }
     if(this.st!=='0'){ this.stop('E'); return; }
     this.pct=null; this.burst=0; this.pulse=0; this.t=0;
-    if(c==='B'){ const [i,pw,n,per,gap]=t.slice(1).split(',').map(Number); this.n=n; this.gap=gap||3000; this.mode='B'; }
+    if(c==='B'){ const f=t.slice(1).split(','), n=+f[2], v=+f[3]; this.n=n; this.gap = !v ? 3000 : v<=30 ? v*1000 : (+f[4]||3000); this.mode='B'; }
     else if(c==='H'){ this.mode='H'; }
     else if(c==='L'){ this.mode='L'; }
     else { this.stop('E'); return; }
