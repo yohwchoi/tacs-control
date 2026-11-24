@@ -607,10 +607,10 @@ void loop() {
   static uint8_t lineLen = 0;
   const bool serialOpen = static_cast<bool>(Serial);
   if (serialOpen && !serialWasOpen) {
-    Serial.println("\n=== tES-YONSEI v1 ===");
+    Serial.println("\n=== tES-YONSEI v2 ===");
     Serial.println(FW_ID);
     Serial.println(bleReady ? "BLE ready" : "BLE init FAILED (Serial control only)");
-    Serial.println("S stop | B<I x10>,<pw us>,<bursts> | H+<I> H-<I> | L<I>,<pw> | ?   e.g. B30,500,5");
+    Serial.println("S stop | B<I x10>,<pw>,<n>[,<period us>,<gap ms>,A|C] | H+<I> H-<I> | L<I>,<pw> | ?   e.g. B30,500,5,1200,3000,A");
     sendStatus();
   }
   serialWasOpen = serialOpen;
