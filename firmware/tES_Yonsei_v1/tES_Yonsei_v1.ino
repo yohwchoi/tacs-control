@@ -18,8 +18,8 @@
  *   EN=0           OFF         (all switches open)
  *   v1 of the bench firmware rested with both electrodes on the +34 V rail. This version rests near GND.
  *
- * One pulse period (3000 us = 333 Hz), timer starts at t = 0 in REST:
- *   biphasic : CC0 = 20 us cathodic start | CC1 = 20+pw anodic start | CC2 = 20+2pw REST | CC3 = 3000 clear
+ * One pulse period (default 3000 us = 333 Hz, set per B command), timer starts at t = 0 in REST:
+ *   biphasic : CC0 = 20 us cathodic start | CC1 = 20+pw anodic start | CC2 = 20+2pw REST | CC3 = period, clear
  *   mono -   : CC0 cathodic start         | CC1 = 20+pw REST
  *   mono +   : CC0 anodic start           | CC1 = 20+pw REST
  *   The first phase edge also starts an SAADC sample of V_sense on D0 (40 us acquisition), so the
@@ -29,8 +29,10 @@
  *
  * Commands (ASCII text, BLE write or Serial line):
  *   S or 0              STOP
- *   B<I>,<pw>,<n>       n bursts of 200 biphasic pulses, 3 s between bursts. I = mA x10 (5..30),
- *                       pw = phase width us (50..1000). e.g. B30,500,5 = 3.0 mA, 500 us, 1 session
+ *   B<I>,<pw>,<n>[,<Hz>[,<gap ms>]]
+ *                       n bursts of 200 biphasic pulses. I = mA x10 (5..30), pw = phase width us (50..1000),
+ *                       Hz = pulse rate (10..2000, default 333), gap = ms between bursts (500..30000, default 3000).
+ *                       e.g. B30,500,5 = 3.0 mA, 500 us, 333 Hz, 3 s gaps;  B30,500,5,100,5000 = 100 Hz, 5 s gaps
  *   H+<I> / H-<I>       HOLD anodic / cathodic DC (max 30 s)
  *   L<I>,<pw>           LED test: 167 cathodic-only pulses (0.5 s), then 167 anodic-only, repeating (max 120 s)
  *   ?                   send status now
@@ -63,6 +65,7 @@
 
 /* ===== set per board ===== */
 constexpr uint8_t BOARD_ID = 1;
+constexpr float   R_SENSE_OHM = 470.0f;      // sense resistor on THIS board: 470 (original) or 220 (after the swap)
 constexpr bool    HAS_SENSE_JUMPER = true;    // false only for a board without the R_sense -> D0 jumper (pct then always '-')
 /* ========================= */
 
@@ -72,7 +75,6 @@ constexpr pin_size_t PIN_SEL1      = D5;
 constexpr pin_size_t PIN_SEL2      = D3;
 
 constexpr float    LOGIC_HIGH_V    = 3.3f;
-constexpr float    R_SENSE_OHM     = 220.0f;
 constexpr uint16_t PWM_TOP         = 4096;
 constexpr float    PWM_COUNTS      = 4096.0f;
 #define REF_PWM NRF_PWM2
@@ -85,13 +87,16 @@ constexpr uint8_t  MAX_BURSTS      = 10;
 constexpr uint16_t PULSES_PER_BURST = 200;
 constexpr uint16_t LED_HALF_PULSES = 167;     // 0.5 s at 333 Hz
 constexpr uint32_t SETTLE_MS       = 1000;
-constexpr uint32_t GAP_MS          = 3000;
+constexpr uint32_t DEFAULT_GAP_MS  = 3000;
+constexpr uint32_t MIN_GAP_MS      = 500;
+constexpr uint32_t MAX_GAP_MS      = 30000;
 constexpr uint32_t HOLD_MAX_MS     = 30000;
 constexpr uint32_t LED_MAX_MS      = 120000;
 
 constexpr uint32_t TICKS_PER_US = 16;
 constexpr uint32_t T_LEAD_US    = 20;
-constexpr uint32_t T_PERIOD_US  = 3000;
+constexpr uint32_t DEFAULT_PERIOD_US = 3000;   // 333 Hz
+constexpr uint32_t MAX_PERIOD_US     = 100000;  // 10 Hz
 
 constexpr uint8_t GPIOTE_CH_SEL1 = 6;
 constexpr uint8_t GPIOTE_CH_SEL2 = 7;
@@ -131,6 +136,8 @@ State afterSettle = State::STOP;
 uint8_t currentX10 = 10;
 uint16_t pwUs = 500;
 uint8_t nBursts = 5;
+uint32_t periodUs = DEFAULT_PERIOD_US;
+uint32_t gapMs = DEFAULT_GAP_MS;
 bool holdAnodic = true;
 uint8_t burstNo = 0;          // 1-based while running
 uint32_t stateStartMs = 0;
@@ -307,7 +314,7 @@ void trainStart(Shape shape, uint16_t nPulses) {
   PULSE_TIMER->CC[0] = t0;
   PULSE_TIMER->CC[1] = t0 + pw;
   PULSE_TIMER->CC[2] = t0 + 2 * pw;
-  PULSE_TIMER->CC[3] = T_PERIOD_US * TICKS_PER_US;
+  PULSE_TIMER->CC[3] = periodUs * TICKS_PER_US;
   PULSE_TIMER->SHORTS = TIMER_SHORTS_COMPARE3_CLEAR_Msk;
   for (int i = 0; i < 4; i++) PULSE_TIMER->EVENTS_COMPARE[i] = 0;
 
@@ -458,10 +465,18 @@ void handleCommand(const char *s) {
 
   const char *p = s + 1;
   long i10 = 0, pw = 0, n = 0;
+  uint32_t newPeriod = DEFAULT_PERIOD_US, newGap = DEFAULT_GAP_MS;
   bool ok = false;
   if (c == 'B') {
     ok = parseUInt(p, i10) && *p++ == ',' && parseUInt(p, pw) && *p++ == ',' && parseUInt(p, n);
     ok = ok && n >= 1 && n <= MAX_BURSTS;
+    newPeriod = DEFAULT_PERIOD_US; newGap = DEFAULT_GAP_MS;
+    if (ok && *p == ',') {                                   // optional ,<freq Hz>[,<gap ms>]
+      p++; long hz = 0;
+      ok = parseUInt(p, hz) && hz >= 10 && hz <= 2000;
+      if (ok) newPeriod = (uint32_t)((1000000L + hz / 2) / hz);
+      if (ok && *p == ',') { p++; long g = 0; ok = parseUInt(p, g) && g >= (long)MIN_GAP_MS && g <= (long)MAX_GAP_MS; newGap = (uint32_t)g; }
+    }
   } else if (c == 'H') {
     const char sign = *p++;
     ok = (sign == '+' || sign == '-') && parseUInt(p, i10);
@@ -472,6 +487,7 @@ void handleCommand(const char *s) {
   }
   while (ok && (*p == ' ' || *p == '\r' || *p == '\n')) p++;
   ok = ok && *p == 0 && i10 >= MIN_CURRENT_X10 && i10 <= MAX_CURRENT_X10 && pw >= MIN_PW_US && pw <= MAX_PW_US;
+  ok = ok && newPeriod <= MAX_PERIOD_US && newPeriod >= T_LEAD_US + 2 * (uint32_t)pw + 50;   // both phases + rest fit
   if (!ok) {
     Serial.print("Bad command: ");
     Serial.println(s);
@@ -480,6 +496,8 @@ void handleCommand(const char *s) {
   }
   currentX10 = (uint8_t)i10;
   pwUs = (uint16_t)pw;
+  periodUs = newPeriod;                      // H and L always use 333 Hz
+  gapMs = newGap;
   if (c == 'B') { nBursts = (uint8_t)n; startSettling(State::BURST); }
   else if (c == 'H') startSettling(State::HOLD);
   else startSettling(State::LED);
@@ -501,7 +519,7 @@ void updateState() {
     sendStatus();
     return;
   }
-  if (state == State::GAP && elapsed >= GAP_MS) { beginBurst(); return; }
+  if (state == State::GAP && elapsed >= gapMs) { beginBurst(); return; }
 
   if (state == State::LED) {
     if (now - runStartMs >= LED_MAX_MS + SETTLE_MS) { stopAll('T'); return; }
