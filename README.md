@@ -1,16 +1,16 @@
 # PNU tES (v5)
 
-**Yonsei app (2026-11): https://yohwchoi.github.io/tacs-control/yonsei.html** with firmware `firmware/tES_Yonsei_v1` (device `tES-Y1-B<n>`, FW ID `tES-YONSEI v1 B<n>`). Add `?demo` to the URL to try the app without a board.
+**Yonsei app v2 (2026-11-24): https://yohwchoi.github.io/tacs-control/yonsei.html** with firmware `firmware/tES_Yonsei_v2` (device `tES-Y1-B<n>`, FW ID `tES-YONSEI v2 B<n> R<ohm>`). Add `?demo` to the URL to try the app without a board. App v2 needs firmware v2 (v1 is kept in `firmware/tES_Yonsei_v1`).
 
 ## Yonsei app (yonsei.html)
 
-- Tabs **점검** (LED Test, Output Waveform Test, PBS Test, Battery Test) and **실험** (Current sweep C1–C6: 0.5–3.0 mA at 500 µs; Phase sweep P1–P5: 100–500 µs at 3.0 mA; Manual incl. 700 µs).
-- Output: 333 Hz cathodic-first symmetric biphasic on E+ (stimulating electrode), 200 pulses per burst, 5 bursts 3 s apart = 1 session. REST between pulses = both electrodes on the sink (near GND, 0 V between them); OFF between bursts.
-- Real-current check: jumper from the top of R_sense (220 Ω, MOSFET source side) to XIAO D0 (`HAS_SENSE_JUMPER = true`, default). Without the jumper D0 is pulled down and the light is red. Each pulse is sampled; log light = green 80–120 %, yellow outside that, red < 20 % (no output), gray = not measured (no jumper).
-- Logs: 점검 and 실험 separately, saved in the phone browser. Reset (full-log screen, with confirmation) clears only the visible log; the hidden full record stays in localStorage (`tes-yonsei-log-v1`).
-- Before uploading the firmware set `BOARD_ID` at the top of the sketch.
+- Waveform (11/24, Park 2024 / Prof. Jeong): + (anodic) 500 µs then − 500 µs, no interphase gap, 200 µs rest = period 1.2 ms (833 Hz); 200 pulses per burst (240 ms); 5 bursts per session. Burst interval 1/3/5/7/9 s (end of burst to start of next), chosen in a popup. Period stays 1.2 ms for all phase widths (phase max 500 µs).
+- Tabs **점검** (LED Test, Output Waveform Test, PBS Test, Battery Test) and **실험** (grid 0.5–3.0 mA × 100–500 µs; Manual popup with number inputs). Grid: ✓ = done, dark red = last run, light red = the one before; marks are kept per Rat × electrode pair. Tap the mA/µs card to see the waveform.
+- Real-current check: jumper from the top of R_sense (MOSFET source side) to XIAO D0 (`HAS_SENSE_JUMPER = true`). Set `R_SENSE_OHM` to the resistor on the board (470 original, 220 after the swap); the board reports it to the app. Log light = green 80–120 %, yellow outside, red < 20 %.
+- Logs: 점검 and 실험 separately, saved in the phone browser (`tes-yonsei-log-v1`). Reset clears only the visible log.
+- Before uploading the firmware set `BOARD_ID` and `R_SENSE_OHM` at the top of the sketch.
 
-Commands (text): `S` stop · `B<I x10>,<pw us>,<bursts>` · `H+<I>` / `H-<I>` hold 30 s · `L<I>,<pw>` LED alternating · `?` status.
+Commands (text): `S` stop · `B<I x10>,<pw us>,<bursts>[,<period us>[,<gap ms>[,A|C]]]` · `H+<I>` / `H-<I>` hold 30 s · `L<I>,<pw>` LED alternating · `?` status.
 Status: `<state>,<burst>,<pulse>,<pct>,<bat x100>,<reason>` (state 0/W/B/G/H/L).
 
 ---
