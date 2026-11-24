@@ -115,8 +115,12 @@ h2{font-size:1.2rem;margin:0}
 .cell.cur{border:2px solid var(--accent)}
 .cell[disabled]{cursor:default}
 .ref{all:unset;cursor:pointer;margin-left:auto;color:var(--accent);font-size:13px;border:1px solid var(--line);border-radius:7px;padding:3px 8px}
-.wset{display:flex;justify-content:space-between;align-items:center;font-size:14px;color:var(--muted)}
-.wset b{color:var(--warn);font-weight:700}
+.wset{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:15px;color:var(--muted);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+.wset[disabled]{opacity:.5;cursor:default}
+.wset b{color:var(--ink,inherit);font-weight:700}
+.man{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.man label{display:grid;gap:6px}
+.man input{font-size:20px;padding:10px;border:1px solid var(--line);border-radius:10px;width:100%;box-sizing:border-box}
 .wset .chips{gap:6px}
 .wset .chip{padding:6px 11px;font-size:14px}
 .edit label{display:grid;gap:4px}
