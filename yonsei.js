@@ -1,4 +1,5 @@
-/* tES Yonsei app v1 (2026-11-21). Pairs with firmware/tES_Yonsei_v1 (FW ID "tES-YONSEI v1 B<n>").
+/* tES Yonsei app v2 (2026-11-24). Pairs with firmware/tES_Yonsei_v2 (FW ID "tES-YONSEI v2 B<n>").
+   Waveform: 500+500 us biphasic, 200 us rest, period 1.2 ms; 200 pulses x 5 bursts; burst gap 1/3/5/7/9 s.
    Tabs: 점검 (LED / output waveform / PBS / battery) and 실험 (current sweep, phase sweep, manual).
    Add ?demo to the URL to try it without a board (simulated board, no Bluetooth). */
 'use strict';
@@ -7,7 +8,8 @@ const SVC = '19b10100-e8f2-537e-4f6c-d104768a1214';
 const CMD = '19b10101-e8f2-537e-4f6c-d104768a1214';
 const STA = '19b10102-e8f2-537e-4f6c-d104768a1214';
 const FW  = '19b10103-e8f2-537e-4f6c-d104768a1214';
-const R_SENSE = 220, V_LIMIT = 33, BAT_LOW = 3.5, STALE_MS = 2000;
+let R_SENSE = 470;   // updated from the board's FW ID ("... R470" / "... R220")
+const V_LIMIT = 33, BAT_LOW = 3.5, STALE_MS = 2000;
 const DEMO = new URLSearchParams(location.search).has('demo');
 
 const MENU = [
@@ -19,13 +21,14 @@ const MENU = [
 const SWEEP = {C:{steps:[0.5,1.0,1.5,2.0,2.5,3.0].map(i=>({I:i,pw:500}))}, P:{steps:[100,200,300,400,500].map(w=>({I:3.0,pw:w}))}};
 const GRID_I = [0.5,1.0,1.5,2.0,2.5,3.0], GRID_PW = [100,200,300,400,500];
 const E = {sweep:'C', step:0, done:{C:[],P:[],G:[]}, mcount:0, rat:null, el:null, edit:null, gi:5, gp:4};
-/* Waveform settings still waiting on Prof. Jeong's answer (11/23): pulse rate and gap between bursts. */
-let WAVE = {hz:333, gapS:3};
-try{ const w=JSON.parse(localStorage.getItem('tes-yonsei-wave')||'null'); if(w&&w.hz&&w.gapS) WAVE=w; }catch(e){}
-function saveWave(){ try{ localStorage.setItem('tes-yonsei-wave', JSON.stringify(WAVE)); }catch(e){} }
-const bArgs = (i10,pw,n) => `B${i10},${pw},${n},${WAVE.hz},${Math.round(WAVE.gapS*1000)}`;
-const periodMs = () => (1000/WAVE.hz);
-const S = {screen:'menu', mode:'1 session', I:3.0, pw:500, R:10, logOpen:null, confirm:false};
+/* 11/24 decision: period fixed at 1.2 ms (also in the phase sweep); gap between bursts is tested at the start. */
+const PERIOD_US = 1200, GAPS = [1,3,5,7,9];
+let WAVE = {gapS:3, order:'A'};   // order A = + phase first (Prof. Jeong's setup), C = − first
+try{ const w=JSON.parse(localStorage.getItem('tes-yonsei-wave2')||'null'); if(w&&GAPS.includes(w.gapS)) WAVE={gapS:w.gapS, order:w.order==='C'?'C':'A'}; }catch(e){}
+function saveWave(){ try{ localStorage.setItem('tes-yonsei-wave2', JSON.stringify(WAVE)); }catch(e){} }
+const bArgs = (i10,pw,n) => `B${i10},${pw},${n},${PERIOD_US},${WAVE.gapS*1000},${WAVE.order}`;
+const periodMs = () => PERIOD_US/1000;
+const S = {screen:'menu', mode:'1 session', I:3.0, pw:500, R:4.7, logOpen:null, confirm:false};
 const BAT_RUNS = 50;
 const $ = id => document.getElementById(id);
 
@@ -38,7 +41,7 @@ let run = null;        // {kind, screen, id, cond, bursts, sessions, done, batSt
 let gatt = null, cmdChar = null, writeQ = Promise.resolve(), wakeLock = null, sim = null;
 
 async function connect(){
-  if(DEMO){ sim = new SimBoard(onStatusText); B.connected=true; B.fw='tES-YONSEI v1 B0 (demo)'; B.board='demo'; B.lastMs=Date.now(); render(); return; }
+  if(DEMO){ sim = new SimBoard(onStatusText); B.connected=true; B.fw='tES-YONSEI v2 B0 R470 (demo)'; B.board='demo'; B.lastMs=Date.now(); render(); return; }
   if(!navigator.bluetooth){ toast('이 브라우저는 Bluetooth를 지원하지 않아요. Android Chrome에서 여세요.'); return; }
   try{
     const dev = await navigator.bluetooth.requestDevice({filters:[{services:[SVC]}]});
@@ -48,6 +51,7 @@ async function connect(){
     cmdChar = await svc.getCharacteristic(CMD);
     try{ B.fw = new TextDecoder().decode(await (await svc.getCharacteristic(FW)).readValue()); }catch(e){ B.fw='?'; }
     const m = /B(\d+)/.exec(B.fw); B.board = m ? m[1] : '?';
+    const r = / R(\d+)/.exec(B.fw); if(r) R_SENSE = +r[1];
     const sta = await svc.getCharacteristic(STA);
     sta.addEventListener('characteristicvaluechanged', ev => onStatusText(new TextDecoder().decode(ev.target.value)));
     await sta.startNotifications();
@@ -157,8 +161,8 @@ function cond(){
   if(S.screen==='safe') return `1 session × ${BAT_RUNS}`;
   if(S.screen==='scope' && S.mode.startsWith('HOLD')) return `${S.mode} ${S.I.toFixed(1)} mA`;
   const base = `${S.I.toFixed(1)} mA · ${S.pw} µs`;
-  if(S.screen==='scope') return base + ` · ${S.R}k${S.mode==='1 burst'?' · 1b':''}`;
-  return base;
+  if(S.screen==='scope') return base + ` · ${S.R}k${S.mode==='1 burst'?' · 1b':' · '+WAVE.gapS+'s'}`;
+  return base + ` · ${WAVE.gapS}s${WAVE.order==='C'?' · −먼저':''}`;
 }
 
 /* ---------------- views ---------------- */
@@ -175,13 +179,15 @@ function wave(){
     pts=`10,60 ${x0},60 ${x0},${y} 270,${y} 270,60 290,60`;
     txt=`<text x="40" y="${plus?y-4:y+14}">${plus?'+':'−'}${I.toFixed(1)} mA DC (최대 30 s)</text>`;
   } else {
-    pts=`10,60 ${x0},60 ${x0},${60+h} ${x0+w},${60+h} ${x0+w},${60-h} ${x0+2*w},${60-h} ${x0+2*w},60 290,60`;
-    txt=`<text x="${x0+4}" y="${60+h+13}">−${I.toFixed(1)} mA · ${pw} µs</text><text x="${x0+w+4}" y="${60-h-4}">+${I.toFixed(1)} mA</text><text x="210" y="114">주기 ${periodMs().toFixed(1)} ms</text>`;
+    const f = WAVE.order==='A' ? -1 : 1, s1 = f<0?'+':'−', s2 = f<0?'−':'+';   // SVG y grows downward
+    pts=`10,60 ${x0},60 ${x0},${60+f*h} ${x0+w},${60+f*h} ${x0+w},${60-f*h} ${x0+2*w},${60-f*h} ${x0+2*w},60 290,60`;
+    const yLo=60+h+13, yHi=60-h-4;
+    txt=`<text x="${x0+4}" y="${f>0?yLo:yHi}">${s1}${I.toFixed(1)} mA · ${pw} µs</text><text x="${x0+w+4}" y="${f>0?yHi:yLo}">${s2}${I.toFixed(1)} mA</text>`;
   }
   const Q=(I*pw/1000).toFixed(2);
   const session = S.screen!=='scope' || S.mode==='1 session';
   const info = hold ? `<span>전류 <b>${I.toFixed(1)} mA</b></span><span>V<sub>sense</sub> <b>${(I*R_SENSE/1000).toFixed(2)} V</b></span>`
-    : `<span><b>${WAVE.hz} Hz</b></span><span>${session?`200 pulse × 5 burst, 간격 ${WAVE.gapS} s`:'200 pulse'}</span><span>Q <b>${Q} µC</b></span>`;
+    : `<span><b>주기 1.2 ms</b></span><span>${session?`200 pulse × 5 burst, 간격 ${WAVE.gapS} s`:'200 pulse'}</span><span>Q <b>${Q} µC</b></span>`;
   return `<div class="scope"><svg viewBox="0 0 300 120" role="img" aria-label="설정한 파형"><line x1="0" y1="60" x2="300" y2="60" stroke="var(--grid)" stroke-dasharray="3 3"/><polyline points="${pts}" fill="none" stroke="var(--wave)" stroke-width="2"/>${txt}</svg><div class="readout">${info}</div></div>`;
 }
 function measTag(){
@@ -198,7 +204,7 @@ function progress(){
   const head = run.kind==='bat' ? `session ${run.done+1}/${run.sessions} · ` : '';
   if(run.bursts===1) return `<div class="prog"><div class="lbl">${head}출력 중 · pulse ${B.pulse}/200</div>${measTag()}</div>`;
   const frac = st==='G' ? 100 : B.pulse/2;
-  const lbl = st==='G' ? `burst ${B.burst}/5 끝 · 다음 burst까지 3 s` : `burst ${B.burst}/5 · pulse ${B.pulse}/200`;
+  const lbl = st==='G' ? `burst ${B.burst}/5 끝 · 다음 burst까지 ${WAVE.gapS} s` : `burst ${B.burst}/5 · pulse ${B.pulse}/200`;
   return `<div class="prog"><div class="lbl">${head}${lbl}</div><div class="bursts">${[1,2,3,4,5].map(b=>`<i class="${b<B.burst?'done':''}" style="${b===B.burst?`background:linear-gradient(90deg,var(--wave) ${frac}%,var(--grid) ${frac}%)`:''}"></i>`).join('')}</div>${measTag()}</div>`;
 }
 function runBtn(label){ return `<button type="button" class="btn" id="run" ${run||!B.connected?'disabled':''}>${run?'출력 중…':label}</button>`; }
@@ -256,21 +262,21 @@ function render(){
     const lit = p => on && ((p==='−')===(B.burst===1));
     m.innerHTML = head('1 · LED Test') +
       `<div class="scope" style="display:flex;justify-content:center;gap:40px;padding:20px">${['+','−'].map(p=>`<div style="text-align:center"><div style="width:40px;height:40px;border-radius:50%;margin:0 auto 4px;background:${lit(p)?'#ef4444':'var(--grid)'};box-shadow:${lit(p)?'0 0 14px #ef4444':'none'}"></div><small class="muted">LED ${p}</small></div>`).join('')}</div>` +
-      `<div class="readout"><span>고정: <b>3.0 mA</b> · 500 µs pulse · 333 Hz</span><span>− 방향 0.5 s → + 방향 0.5 s 번갈아 반복</span></div>` +
+      `<div class="readout"><span>고정: <b>3.0 mA</b> · 500 µs pulse</span><span>− 방향 0.5 s → + 방향 0.5 s 번갈아 반복</span></div>` +
       progress() + runBtn('깜빡이기 시작') + logBlock('chk');
   } else if(S.screen==='scope'){
     const V=(S.I*S.R).toFixed(1);
     m.innerHTML = head('2 · Output Waveform Test') +
       chips('출력 방식','mode',['HOLD +','HOLD −','1 burst','1 session']) +
       chips('전류 (mA)','I',[0.5,1.0,1.5,2.0,2.5,3.0],v=>v.toFixed(1)) +
-      chips('Phase (µs)','pw',[100,200,300,400,500,700],v=>v,()=>S.mode.startsWith('HOLD')) +
-      chips('부하 저항 (kΩ)','R',[1,5,10,15]) +
+      chips('Phase (µs)','pw',[100,200,300,400,500],v=>v,()=>S.mode.startsWith('HOLD')) +
+      chips('부하 저항 (kΩ)','R',[1,4.7,10,15]) +
       wave() + `<div class="readout"><span>scope 예상: 저항 양단 <b>±${V} V</b></span>${S.I*S.R>V_LIMIT?'<span style="color:var(--warn)">전압 한계(≈33 V) 넘음</span>':''}</div>` +
       progress() + runBtn(S.mode.startsWith('HOLD')?'HOLD 시작 (30 s)':'출력') + logBlock('chk');
   } else if(S.screen==='pbs'){
     m.innerHTML = head('3 · PBS Test') +
       chips('전류 (mA)','I',[0.5,1.0,1.5,2.0,2.5,3.0],v=>v.toFixed(1)) +
-      chips('Phase (µs)','pw',[100,200,300,400,500,700]) +
+      chips('Phase (µs)','pw',[100,200,300,400,500]) +
       wave() + progress() + runBtn('1 session 출력') + logBlock('chk');
   } else if(S.screen==='safe'){
     m.innerHTML = head('4 · Battery Test') +
@@ -294,7 +300,7 @@ function renderExp(m){
   const seg = `<div class="seg">${[['C','Current'],['P','Phase'],['G','Grid'],['M','Manual']].map(([k,t])=>`<button type="button" data-sw="${k}" class="${E.sweep===k?'on':''}" ${dis}>${t}</button>`).join('')}</div>`;
   let body;
   if(E.sweep==='M'){
-    body = chips('전류 (mA)','I',[0.5,1.0,1.5,2.0,2.5,3.0],v=>v.toFixed(1)) + chips('Phase (µs)','pw',[100,200,300,400,500,700]);
+    body = chips('전류 (mA)','I',[0.5,1.0,1.5,2.0,2.5,3.0],v=>v.toFixed(1)) + chips('Phase (µs)','pw',[100,200,300,400,500]);
   } else if(E.sweep==='G'){
     if(!run){ S.I=GRID_I[E.gi]; S.pw=GRID_PW[E.gp]; }
     const tier1 = (ci,pi) => pi===4 || ci===5;
@@ -310,14 +316,10 @@ function renderExp(m){
       `<button type="button" class="step${i===E.step?' cur':''}${E.done[E.sweep].includes(i)?' done':''}" data-st="${i}" ${dis}>${E.sweep}${i+1}<small>${E.sweep==='C'?x.I.toFixed(1):x.pw}</small></button>`).join('')}</div>`;
   }
   const id = run ? run.id : expId();
-  const card = `<div class="now"><span class="id">${id}</span><span class="cond">${S.I.toFixed(1)} mA · ${S.pw} µs<small>${WAVE.hz} Hz · 200 pulse × 5 burst · 간격 ${WAVE.gapS} s</small></span></div>`;
+  const card = `<div class="now"><span class="id">${id}</span><span class="cond">${S.I.toFixed(1)} mA · ${S.pw} µs<small>1.2 ms · 200 pulse × 5 burst · 간격 ${WAVE.gapS} s</small></span></div>`;
   const focus = document.activeElement && document.activeElement.id==='numin';
-  const waveSet = E.wedit
-    ? `<div class="edit"><div class="lbl" style="margin:0">파형 설정 (정준수 교수님 답 대기)</div>`+
-      `<label class="lbl">Pulse 주파수 (Hz)<input id="hzin" type="number" inputmode="numeric" min="10" max="2000" value="${WAVE.hz}"></label>`+
-      `<label class="lbl">Burst 간격 (s)<input id="gapin" type="number" inputmode="decimal" min="0.5" max="30" step="0.5" value="${WAVE.gapS}"></label>`+
-      `<div class="row2"><button type="button" class="btn ghost" data-wcancel>취소</button><button type="button" class="btn" data-wok>확인</button></div></div>`
-    : `<div class="wset"><span>${WAVE.hz} Hz · 간격 ${WAVE.gapS} s${WAVE.hz!==333||WAVE.gapS!==3?' <b>(기본값 아님)</b>':''}</span><button type="button" data-wedit ${dis}>파형 설정</button></div>`;
+  const waveSet = `<div class="wset"><span>Burst 간격</span><div class="chips">${GAPS.map(g=>`<button type="button" class="chip${g===WAVE.gapS?' on':''}" data-gap="${g}" ${dis}>${g} s</button>`).join('')}</div></div>`+
+    `<div class="wset"><span>순서</span><div class="chips">${[['A','+ 먼저'],['C','− 먼저']].map(([o,t])=>`<button type="button" class="chip${o===WAVE.order?' on':''}" data-order="${o}" ${dis}>${t}</button>`).join('')}</div></div>`;
   m.innerHTML = who + seg + waveSet + card + body + wave() + progress() +
     `<button type="button" class="btn big" id="run" ${run||!B.connected?'disabled':''}>${run?id+' 출력 중…':id+' 시작'}</button>` + logBlock('exp');
   if(E.edit && !focus){ const i=$('numin'); if(i) i.focus(); }
@@ -341,7 +343,7 @@ document.addEventListener('click', e=>{
   if(T('[data-resetyes]')){ S.confirm=false; const k=T('[data-resetyes]').dataset.resetyes; LOG[k].view=[]; LOG[k].all.push({sep:'(Reset)', t:nowT(), d:new Date().toISOString()}); saveLog(); render(); return; }
   if(T('[data-logopen]')){ const k=T('[data-logopen]').dataset.logopen; if(LOG[k].view.length){ S.logOpen=k; render(); } return; }
   const go=T('[data-go]'); if(go){ if(run) return; S.logOpen=null; S.screen=go.dataset.go; if(S.screen==='led'){S.I=3.0; S.pw=500;} render(); return; }
-  const c=T('.chip'); if(c && !c.disabled){ const k=c.dataset.k, v=c.dataset.v; S[k]=isNaN(+v)?v:+v; render(); return; }
+  const c=T('.chip[data-k]'); if(c && !c.disabled){ const k=c.dataset.k, v=c.dataset.v; S[k]=isNaN(+v)?v:+v; render(); return; }
   const ed=T('[data-edit]'); if(ed && !ed.disabled){ const k=ed.dataset.edit; E.edit={k, n:k==='rat'?E.rat:E.el?.n, type:E.el?.type||'P'}; render(); return; }
   const et=T('[data-eltype]'); if(et){ E.edit.n=$('numin').value||null; E.edit.type=et.dataset.eltype; render(); return; }
   if(T('[data-editcancel]')){ E.edit=null; render(); return; }
@@ -349,15 +351,10 @@ document.addEventListener('click', e=>{
   const sw=T('[data-sw]'); if(sw && !sw.disabled){ E.sweep=sw.dataset.sw; render(); return; }
   const st=T('[data-st]'); if(st && !st.disabled){ E.step=+st.dataset.st; render(); return; }
   const cell=T('[data-cell]'); if(cell && !cell.disabled){ const [ci,pi]=cell.dataset.cell.split(',').map(Number); E.gi=ci; E.gp=pi; E.sweep='G'; render(); return; }
-  if(T('[data-wedit]')){ E.wedit=true; render(); return; }
-  if(T('[data-wcancel]')){ E.wedit=false; render(); return; }
-  if(T('[data-wok]')){
-    const hz=Math.round(+$('hzin').value), g=Math.round(+$('gapin').value*2)/2;
-    if(!(hz>=10&&hz<=2000)||!(g>=0.5&&g<=30)){ toast('주파수 10–2000 Hz, 간격 0.5–30 s'); return; }
-    if(2*700+70 > 1e6/hz){ toast(`${hz} Hz에서는 phase가 ${Math.floor((1e6/hz-70)/2)} µs까지만 돼요`); }
-    WAVE={hz, gapS:g}; saveWave(); E.wedit=false;
-    const sep=`파형 ${hz} Hz · 간격 ${g} s`; LOG.exp.view.push({sep}); LOG.exp.all.push({sep,t:nowT(),d:new Date().toISOString()}); saveLog();
-    render(); return; }
+  const od=T('[data-order]'); if(od && !od.disabled){ const o=od.dataset.order; if(o!==WAVE.order){ WAVE.order=o; saveWave();
+    const sep=`순서 ${o==='A'?'+':'−'} 먼저`; LOG.exp.view.push({sep}); LOG.exp.all.push({sep,t:nowT(),d:new Date().toISOString()}); saveLog(); } render(); return; }
+  const gp=T('[data-gap]'); if(gp && !gp.disabled){ const g=+gp.dataset.gap; if(g!==WAVE.gapS){ WAVE.gapS=g; saveWave();
+    const sep=`Burst 간격 ${g} s`; LOG.exp.view.push({sep}); LOG.exp.all.push({sep,t:nowT(),d:new Date().toISOString()}); saveLog(); } render(); return; }
   if(T('#run')) startRun();
 });
 document.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.id==='numin') document.querySelector('[data-editok]').click(); });
@@ -373,7 +370,7 @@ class SimBoard {
     if(c==='S'||c==='0'){ this.stop('U'); return; }
     if(this.st!=='0'){ this.stop('E'); return; }
     this.pct=null; this.burst=0; this.pulse=0; this.t=0;
-    if(c==='B'){ const [i,pw,n]=t.slice(1).split(',').map(Number); this.n=n; this.mode='B'; }
+    if(c==='B'){ const [i,pw,n,per,gap]=t.slice(1).split(',').map(Number); this.n=n; this.gap=gap||3000; this.mode='B'; }
     else if(c==='H'){ this.mode='H'; }
     else if(c==='L'){ this.mode='L'; }
     else { this.stop('E'); return; }
@@ -385,7 +382,7 @@ class SimBoard {
     if(this.st==='0'){ if(this.t%1000<200) this.emit(); return; }
     if(this.st==='W' && this.t>=1000){ this.t=0; this.burst=1; this.st = this.mode==='B'?'B':this.mode==='H'?'H':'L'; }
     else if(this.st==='B'){ this.pulse=Math.min(200,this.pulse+67); this.pct=98; if(this.pulse>=200){ this.bat=Math.max(330,this.bat-1); if(this.burst>=this.n){ this.stop('F'); return; } this.st='G'; this.t=0; } }
-    else if(this.st==='G' && this.t>=3000){ this.st='B'; this.burst++; this.pulse=0; }
+    else if(this.st==='G' && this.t>=this.gap){ this.st='B'; this.burst++; this.pulse=0; }
     else if(this.st==='L'){ this.pct=99; if(this.t%600<200) this.burst=this.burst===1?2:1; if(this.t>=120000){ this.stop('T'); return; } }
     else if(this.st==='H'){ this.pct=100; if(this.t>=30000){ this.stop('T'); return; } }
     this.emit();

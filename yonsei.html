@@ -62,7 +62,7 @@ h2{font-size:1.2rem;margin:0}
 .note{font-size:12.5px;color:var(--muted)}
 .warnbox{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 10px;font-size:13px}
 .stop{all:unset;cursor:pointer;background:var(--stop);color:#fff;text-align:center;font-weight:700;letter-spacing:.05em;font-size:17px;padding-block:16px;position:sticky;bottom:0;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
-.seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{all:unset;cursor:pointer;text-align:center;padding:10px 0;font-size:15px}
 .seg button+button{border-left:1px solid var(--line)}
 .seg button.on{background:var(--accent);color:#fff;font-weight:700}
@@ -117,7 +117,8 @@ h2{font-size:1.2rem;margin:0}
 .ref{all:unset;cursor:pointer;margin-left:auto;color:var(--accent);font-size:13px;border:1px solid var(--line);border-radius:7px;padding:3px 8px}
 .wset{display:flex;justify-content:space-between;align-items:center;font-size:14px;color:var(--muted)}
 .wset b{color:var(--warn);font-weight:700}
-.wset button{all:unset;cursor:pointer;color:var(--accent);font-size:14px}
+.wset .chips{gap:6px}
+.wset .chip{padding:6px 11px;font-size:14px}
 .edit label{display:grid;gap:4px}
 .toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:#1b2326;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;max-width:360px;z-index:20}
 .toast[hidden]{display:none}
