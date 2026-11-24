@@ -20,7 +20,7 @@ const MENU = [
 ];
 const SWEEP = {C:{steps:[0.5,1.0,1.5,2.0,2.5,3.0].map(i=>({I:i,pw:500}))}, P:{steps:[100,200,300,400,500].map(w=>({I:3.0,pw:w}))}};
 const GRID_I = [0.5,1.0,1.5,2.0,2.5,3.0], GRID_PW = [100,200,300,400,500];
-const E = {sweep:'G', step:0, done:{C:[],P:[],G:[]}, mcount:0, rat:null, el:null, edit:null, gi:5, gp:4};
+const E = {sweep:'G', step:0, done:{C:[],P:[],G:[]}, hist:[], mcount:0, man:null, rat:null, el:null, edit:null, gi:5, gp:4};
 /* 11/24 decision: period fixed at 1.2 ms (also in the phase sweep); gap between bursts is tested at the start. */
 const PERIOD_US = 1200, GAPS = [1,3,5,7,9];
 let WAVE = {gapS:3, order:'A'};   // order A = + phase first (Prof. Jeong's setup), C = − first
@@ -148,6 +148,7 @@ function finishRun(reason){
     else if(completed && !E.done[r.sweep].includes(r.step)) E.done[r.sweep].push(r.step);
     if(completed && r.sweep!=='M' && r.sweep!=='G'){           // same condition in Grid counts too
       const k=`${GRID_I.indexOf(r.I)},${GRID_PW.indexOf(r.pw)}`; if(!k.includes('-1') && !E.done.G.includes(k)) E.done.G.push(k); }
+    if(r.sweep==='G'){ E.hist=E.hist.filter(x=>x!==r.step); E.hist.push(r.step); if(E.hist.length>2) E.hist.shift(); }
     if(completed && r.sweep==='G'){
       const [ci,pi]=r.step.split(',').map(Number);
       if(pi===4 && !E.done.C.includes(ci)) E.done.C.push(ci);
@@ -191,7 +192,7 @@ function wave(){
   return `<div class="scope"><svg viewBox="0 0 300 120" role="img" aria-label="설정한 파형"><line x1="0" y1="60" x2="300" y2="60" stroke="var(--grid)" stroke-dasharray="3 3"/><polyline points="${pts}" fill="none" stroke="var(--wave)" stroke-width="2"/>${txt}</svg><div class="readout">${info}</div></div>`;
 }
 /* One session = 5 bursts of 240 ms, gap = end of a burst to start of the next. */
-function sessionPlot(g, order){
+function sessionPlot(g){
   const BL=0.24, T=5*BL+4*g, x0=14, W=276, k=W/T, y0=46, h=26, bw=Math.max(4, BL*k);
   let bars='', arrows='';
   for(let i=0;i<5;i++){
@@ -205,7 +206,7 @@ function sessionPlot(g, order){
   return `<div class="scope" style="padding:8px"><svg viewBox="0 0 300 112" role="img" aria-label="1 session 파형">`+
     `<defs><marker id="ah" viewBox="0 0 6 6" refX="3" refY="3" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L6,3 L0,6" fill="none" stroke="var(--muted)"/></marker></defs>`+
     `<line x1="0" y1="${y0}" x2="300" y2="${y0}" stroke="var(--grid)" stroke-dasharray="3 3"/>${bars}${arrows}</svg>`+
-    `<div class="readout"><span>burst 240 ms × 5</span><span>1 session <b>${T.toFixed(1)} s</b></span><span>${order==='A'?'+':'−'} 먼저</span></div></div>`;
+    `<div class="readout"><span>burst 240 ms × 5</span><span>1 session <b>${T.toFixed(1)} s</b></span></div></div>`;
 }
 function measTag(){
   if(B.pct==null) return '';
@@ -234,10 +235,10 @@ function rowHTML(r, full, n){
   if(r.sep) return `<span class="sep">${r.sep}</span>`;
   return `<div>${full?`<span class="t">${n}</span>`:''}<span class="t">${full?r.t:r.t.slice(0,5)}</span><span>${r.id}</span><span>${r.cond}</span>${resTxt(r)}</div>`;
 }
-function logBlock(k){
+function logBlock(k, nShow=3){
   const v=LOG[k].view, runs=v.filter(r=>!r.sep).length;
   return `<div><div class="loghead"><span class="lbl">Log</span><span class="acts">${runs?`<button type="button" data-logopen="${k}">전체 ${runs}회 ›</button>`:''}</span></div>`+
-    `<div class="log prev" data-logopen="${k}">${v.length?v.slice(-3).reverse().map(r=>rowHTML(r,false)).join(''):'<span class="muted">없음</span>'}</div></div>`;
+    `<div class="log prev" data-logopen="${k}">${v.length?v.slice(-nShow).reverse().map(r=>rowHTML(r,false)).join(''):'<span class="muted">없음</span>'}</div></div>`;
 }
 function logFull(m,k){
   const v=LOG[k].view; let n=v.filter(r=>!r.sep).length;
@@ -302,7 +303,7 @@ function render(){
   }
 }
 
-function expId(){ return E.sweep==='M' ? 'M'+(E.mcount+1) : E.sweep==='G' ? 'G'+(E.gi+1)+(E.gp+1) : E.sweep+(E.step+1); }
+function expId(){ return E.sweep==='M' ? 'M' : ''; }
 function elTxt(){ return E.el ? (E.el.type==='F'?'Flat ':'Porous ')+E.el.n : '—'; }
 function renderExp(m){
   const dis = run ? 'disabled' : '';
@@ -314,37 +315,30 @@ function renderExp(m){
       `<input id="numin" type="number" inputmode="numeric" min="1" value="${E.edit.n??''}" aria-label="번호">`+
       `<div class="row2"><button type="button" class="btn ghost" data-editcancel>취소</button><button type="button" class="btn" data-editok>확인</button></div></div>`;
   }
-  const seg = `<div class="seg">${[['G','Grid'],['M','Manual']].map(([k,t])=>`<button type="button" data-sw="${k}" class="${E.sweep===k?'on':''}" ${dis}>${t}</button>`).join('')}</div>`;
-  let body;
-  if(E.sweep==='M'){
-    body = `<div class="man"><label class="lbl">전류 (mA)<input id="manI" type="number" inputmode="decimal" min="0.5" max="3" step="0.1" value="${S.I.toFixed(1)}" ${dis}></label>`+
-      `<label class="lbl">Phase (µs)<input id="manPw" type="number" inputmode="numeric" min="50" max="500" step="10" value="${S.pw}" ${dis}></label></div>`;
-  } else if(E.sweep==='G'){
-    if(!run){ S.I=GRID_I[E.gi]; S.pw=GRID_PW[E.gp]; }
-    const tier1 = (ci,pi) => pi===4 || ci===5;
-    body = `<div class="grid"><span></span>${GRID_I.map(i=>`<span class="gh">${i.toFixed(1)}</span>`).join('')}`+
-      GRID_PW.map((w,pi)=>`<span class="gh">${w}</span>`+GRID_I.map((i,ci)=>{
-        const done=E.done.G.includes(`${ci},${pi}`), cur=ci===E.gi&&pi===E.gp;
-        return `<button type="button" class="cell${tier1(ci,pi)?' t1':''}${cur?' cur':''}${done?' done':''}" data-cell="${ci},${pi}" ${dis} aria-label="${i} mA ${w} µs">${done?'✓':''}</button>`;
-      }).join('')).join('')+`</div><div class="readout"><span>가로 mA · 세로 µs</span><span class="t1key">진한 칸 = 원래 두 sweep</span><button type="button" class="ref" data-cell="5,4" ${dis}>기준 3.0 mA · 500 µs</button></div>`;
-  } else {
-    const sw=SWEEP[E.sweep], st=sw.steps[E.step];
-    if(!run){ S.I=st.I; S.pw=st.pw; }
-    body = `<div class="steps" style="grid-template-columns:repeat(${sw.steps.length},1fr)">${sw.steps.map((x,i)=>
-      `<button type="button" class="step${i===E.step?' cur':''}${E.done[E.sweep].includes(i)?' done':''}" data-st="${i}" ${dis}>${E.sweep}${i+1}<small>${E.sweep==='C'?x.I.toFixed(1):x.pw}</small></button>`).join('')}</div>`;
-  }
-  const id = run ? run.id : expId();
-  const card = `<div class="now"><span class="id">${id}</span><span class="cond">${S.I.toFixed(1)} mA · ${S.pw} µs<small>1.2 ms · 200 pulse × 5 burst · 간격 ${WAVE.gapS} s</small></span></div>`;
-  const focus = document.activeElement && document.activeElement.id==='numin';
-  const waveSet = `<button type="button" class="wset" data-wopen ${dis}><span>Burst 간격 <b>${WAVE.gapS} s</b> · <b>${WAVE.order==='A'?'+':'−'} 먼저</b></span><span class="arrow">›</span></button>`;
-  const W = E.wmodal;
+  const manual = E.sweep==='M';
+  if(!run && !manual){ S.I=GRID_I[E.gi]; S.pw=GRID_PW[E.gp]; }
+  const bar = `<div class="xbar"><button type="button" data-wopen ${dis}>Burst 간격 <b>${WAVE.gapS} s</b> ›</button><button type="button" data-mopen ${dis}>${manual?'<b>Manual</b>':'Manual'} ›</button></div>`;
+  const tier1 = (ci,pi) => pi===4 || ci===5;
+  const last=E.hist[E.hist.length-1], prev=E.hist.length>1?E.hist[0]:null;
+  const grid = `<div class="grid"><span></span>${GRID_I.map(i=>`<span class="gh">${i.toFixed(1)}</span>`).join('')}`+
+    GRID_PW.map((w,pi)=>`<span class="gh">${w}</span>`+GRID_I.map((i,ci)=>{
+      const k=`${ci},${pi}`, done=E.done.G.includes(k), cur=!manual&&ci===E.gi&&pi===E.gp;
+      const h = k===last ? ' last' : k===prev ? ' prev' : '';
+      return `<button type="button" class="cell${tier1(ci,pi)?' t1':''}${done?' done':''}${h}${cur?' cur':''}" data-cell="${k}" ${dis} aria-label="${i} mA ${w} µs">${done?'✓':''}</button>`;
+    }).join('')).join('')+`</div>`;
+  const card = `<div class="now2"><span class="cond">${S.I.toFixed(1)} <small>mA</small> · ${S.pw} <small>µs</small></span>${manual?'<span class="mtag">Manual</span>':''}</div>`;
+  const W = E.wmodal, M = E.man;
   const wModal = W ? `<div class="modal"><div class="box" style="text-align:left">`+
     `<div><div class="lbl">Burst 간격</div><div class="chips">${GAPS.map(g=>`<button type="button" class="chip${g===W.gapS?' on':''}" data-gap="${g}">${g} s</button>`).join('')}</div></div>`+
-    sessionPlot(W.gapS, W.order)+
-    `<div><div class="lbl">순서</div><div class="chips">${[['A','+ 먼저'],['C','− 먼저']].map(([o,t])=>`<button type="button" class="chip${o===W.order?' on':''}" data-order="${o}">${t}</button>`).join('')}</div></div>`+
+    sessionPlot(W.gapS)+
     `<div class="row2"><button type="button" class="btn ghost" data-wcancel>취소</button><button type="button" class="btn" data-wok>확인</button></div></div></div>` : '';
-  m.innerHTML = who + seg + waveSet + card + body + wave() + progress() +
-    `<button type="button" class="btn big" id="run" ${run||!B.connected?'disabled':''}>${run?id+' 출력 중…':id+' 시작'}</button>` + logBlock('exp') + wModal;
+  const mModal = M ? `<div class="modal"><div class="box" style="text-align:left"><b>Manual</b>`+
+    `<div class="man"><label class="lbl">전류 (mA)<input id="manI" type="number" inputmode="decimal" min="0.5" max="3" step="0.1" value="${M.I.toFixed(1)}"></label>`+
+    `<label class="lbl">Phase (µs)<input id="manPw" type="number" inputmode="numeric" min="50" max="500" step="10" value="${M.pw}"></label></div>`+
+    `<div class="row2"><button type="button" class="btn ghost" data-mcancel>취소</button><button type="button" class="btn" data-mok>확인</button></div></div></div>` : '';
+  const focus = document.activeElement && document.activeElement.id==='numin';
+  m.innerHTML = who + bar + grid + card + (run ? progress() : '') +
+    `<button type="button" class="btn big" id="run" ${run||!B.connected?'disabled':''}>${run?'출력 중…':'시작'}</button>` + logBlock('exp', 2) + wModal + mModal;
   if(E.edit && !focus){ const i=$('numin'); if(i) i.focus(); }
 }
 
@@ -365,7 +359,6 @@ document.addEventListener('click', e=>{
   if(T('[data-resetno]')){ S.confirm=false; render(); return; }
   if(T('[data-resetyes]')){ S.confirm=false; const k=T('[data-resetyes]').dataset.resetyes; LOG[k].view=[]; LOG[k].all.push({sep:'(Reset)', t:nowT(), d:new Date().toISOString()}); saveLog(); render(); return; }
   if(T('[data-logopen]')){ const k=T('[data-logopen]').dataset.logopen; if(LOG[k].view.length){ S.logOpen=k; render(); } return; }
-  if(T('#run') && $('manI')) applyManual();
   const go=T('[data-go]'); if(go){ if(run) return; S.logOpen=null; S.screen=go.dataset.go; if(S.screen==='led'){S.I=3.0; S.pw=500;} render(); return; }
   const c=T('.chip[data-k]'); if(c && !c.disabled){ const k=c.dataset.k, v=c.dataset.v; S[k]=isNaN(+v)?v:+v; render(); return; }
   const ed=T('[data-edit]'); if(ed && !ed.disabled){ const k=ed.dataset.edit; E.edit={k, n:k==='rat'?E.rat:E.el?.n, type:E.el?.type||'P'}; render(); return; }
@@ -375,26 +368,22 @@ document.addEventListener('click', e=>{
   const sw=T('[data-sw]'); if(sw && !sw.disabled){ E.sweep=sw.dataset.sw; render(); return; }
   const st=T('[data-st]'); if(st && !st.disabled){ E.step=+st.dataset.st; render(); return; }
   const cell=T('[data-cell]'); if(cell && !cell.disabled){ const [ci,pi]=cell.dataset.cell.split(',').map(Number); E.gi=ci; E.gp=pi; E.sweep='G'; render(); return; }
-  if(T('[data-wopen]') && !run){ E.wmodal={...WAVE}; render(); return; }
-  const od=T('[data-order]'); if(od && E.wmodal){ E.wmodal.order=od.dataset.order; render(); return; }
+  if(T('[data-wopen]') && !run){ E.wmodal={gapS:WAVE.gapS}; render(); return; }
   const gp=T('[data-gap]'); if(gp && E.wmodal){ E.wmodal.gapS=+gp.dataset.gap; render(); return; }
   if(T('[data-wcancel]')){ E.wmodal=null; render(); return; }
-  if(T('[data-wok]')){ const W=E.wmodal; E.wmodal=null;
-    if(W.gapS!==WAVE.gapS || W.order!==WAVE.order){ WAVE={gapS:W.gapS, order:W.order}; saveWave();
-      const sep=`간격 ${W.gapS} s · ${W.order==='A'?'+':'−'} 먼저`; LOG.exp.view.push({sep}); LOG.exp.all.push({sep,t:nowT(),d:new Date().toISOString()}); saveLog(); }
+  if(T('[data-wok]')){ const g=E.wmodal.gapS; E.wmodal=null;
+    if(g!==WAVE.gapS){ WAVE.gapS=g; saveWave();
+      const sep=`Burst 간격 ${g} s`; LOG.exp.view.push({sep}); LOG.exp.all.push({sep,t:nowT(),d:new Date().toISOString()}); saveLog(); }
     render(); return; }
+  if(T('[data-mopen]') && !run){ E.man={I:S.I, pw:S.pw}; render(); return; }
+  if(T('[data-mcancel]')){ E.man=null; render(); return; }
+  if(T('[data-mok]')){ applyManual(); E.man=null; E.sweep='M'; render(); return; }
   if(T('#run')) startRun();
 });
 document.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.id==='numin') document.querySelector('[data-editok]').click(); });
 $('stop').addEventListener('click', stopNow);
-/* Manual inputs: apply when focus leaves the two boxes, so moving from one box to the other keeps focus. */
-document.addEventListener('focusout', e=>{
-  if(!e.target.closest || !e.target.closest('.man')) return;
-  if(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.man')) { applyManual(); return; }
-  applyManual(); render();
-});
 function applyManual(){
-  const a=$('manI'), b=$('manPw'); if(!a||!b) return;
+  const a=$('manI'), b=$('manPw'); if(!a||!b) return;   // Manual popup -> current condition
   let v=Math.round(+a.value*10)/10; if(!(v>=0.5)) v=0.5; if(v>3) v=3; S.I=v;
   let w=Math.round(+b.value/10)*10; if(!(w>=50)) w=50; if(w>500) w=500; S.pw=w;
 }
