@@ -46,7 +46,7 @@
  *                       repeating (max 120 s). I up to 10.0 mA (L100,500), capped by the board: about 6 mA with 470 ohm,
  *                       10 mA with 220 ohm (reference limit 2.9 V on R_sense).
  *
- * Board LEDs: blue on = phone connected; green short blink every 2 s = waiting for the phone; red on = output running.
+ * Board LEDs: one short blink every 2 s while powered: blue = phone connected, green = waiting for the phone; red on = output running.
  *   ?                   send status now
  *   Start commands are accepted only when stopped. Anything else = STOP (reason E).
  *
@@ -656,9 +656,10 @@ void loop() {
     }
     wasConnected = connected;
     if (connected && cmdChar.written()) handleCommand(cmdChar.value().c_str());
-    // board LEDs: blue = phone connected, green blink = waiting for the phone
-    digitalWrite(LEDB, connected ? LOW : HIGH);
-    digitalWrite(LEDG, (!connected && millis() % 2000 < 120) ? LOW : HIGH);
+    // board LEDs: one short blink every 2 s (almost no battery): blue = phone connected, green = waiting for the phone
+    const bool blink = millis() % 2000 < 80;
+    digitalWrite(LEDB, (connected && blink) ? LOW : HIGH);
+    digitalWrite(LEDG, (!connected && blink) ? LOW : HIGH);
   }
 
   updateState();
