@@ -47,6 +47,7 @@
  *                       10 mA with 220 ohm (reference limit 2.9 V on R_sense).
  *
  * Board LEDs: one short blink every 2 s while powered: blue = phone connected, green = waiting for the phone; red on = output running.
+ *   T                   trigger-LED test (no output): D1 LED dim 1 s / bright 240 ms, 5 times (~6 s). Only when stopped.
  *   ?                   send status now
  *   Start commands are accepted only when stopped. Anything else = STOP (reason E).
  *
@@ -62,8 +63,8 @@
  * Safety: boot = STOP, BLE disconnect = STOP, max 3.0 mA, HOLD 30 s, LED 120 s, bad command = STOP.
  *   STOP opens the TMUX switches (EN=0). It does NOT turn off the boost rail.
  *
- * Pins: reference PWM = D2, EN = D4, SEL1 = D5, SEL2 = D3, V_sense = D0 (AIN0), battery = P0.31 (AIN7, enable P0.14 low)
- * Resources: PWM2, TIMER3, TIMER4, GPIOTE ch 6-7, PPI ch 16-19, SAADC (no analogRead() anywhere).
+ * Pins: stimulation indicator LED = D1 (full during burst/hold/LED test, dim between bursts, off at STOP), reference PWM = D2, EN = D4, SEL1 = D5, SEL2 = D3, V_sense = D0 (AIN0), battery = P0.31 (AIN7, enable P0.14 low)
+ * Resources: PWM1 (D1 LED), PWM2, TIMER3, TIMER4, GPIOTE ch 6-7, PPI ch 16-19, SAADC (no analogRead() anywhere).
  */
 
 #include <Arduino.h>
@@ -165,6 +166,8 @@ char stopReason = 'P';
 bool bleReady = false;
 bool wasConnected = false;
 bool trainRunning = false;
+bool stimLedTestOn = false;           // 'T' trigger-LED test running
+uint32_t stimLedTestMs = 0;
 uint32_t lastStatusMs = 0;
 uint32_t lastBatMs = 0;
 uint32_t lastHoldSampleMs = 0;
@@ -481,8 +484,9 @@ void handleCommand(const char *s) {
   if (*s == 0) return;
   const char c = *s;
   if (c == '?') { sendStatus(); return; }
-  if (c == 'S' || c == 's' || c == '0') { stopAll('U'); return; }
+  if (c == 'S' || c == 's' || c == '0') { stimLedTestOn = false; stopAll('U'); return; }
   if (state != State::STOP) { stopAll('E'); return; }     // start only from STOP
+  if (c == 'T' || c == 't') { stimLedTestMs = millis(); stimLedTestOn = true; return; }
 
   const char *p = s + 1;
   long i10 = 0, pw = 0, n = 0;
@@ -578,9 +582,56 @@ void updateState() {
 
   const uint32_t every = state == State::STOP ? 1000 : 200;
   if (now - lastStatusMs >= every) sendStatus();
+  stimLedUpdate();
+}
+
+/* ---------- stimulation indicator LED on D1 (P0.03) ----------
+ * 11/25: external LED + series resistor (68-100 ohm) from D1 to GND, driven by PWM1 at 1 kHz.
+ *   full    while current is delivered (each BURST, HOLD, LED test)
+ *   dim     between bursts of a running session (GAP, SETTLING)
+ *   off     STOP
+ * High-drive output (~3-5 mA with a blue/white LED). */
+constexpr uint8_t  STIM_LED_PIN = 3;         // D1 = P0.03
+constexpr uint16_t STIM_LED_TOP = 1000;      // 1 MHz / 1000 = 1 kHz
+constexpr uint16_t STIM_LED_DIM = 60;        // 6 % duty between bursts
+static uint16_t stimLedSeq[1] = { 0x8000 };
+static int16_t stimLedLevel = -1;
+void stimLedInit() {
+  NRF_P0->OUTCLR = (1UL << STIM_LED_PIN);
+  NRF_P0->PIN_CNF[STIM_LED_PIN] = (GPIO_PIN_CNF_DIR_Output << GPIO_PIN_CNF_DIR_Pos) |
+                                  (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos) |
+                                  (GPIO_PIN_CNF_DRIVE_H0H1 << GPIO_PIN_CNF_DRIVE_Pos);
+  NRF_PWM1->PSEL.OUT[0] = STIM_LED_PIN;
+  NRF_PWM1->MODE = PWM_MODE_UPDOWN_Up;
+  NRF_PWM1->PRESCALER = PWM_PRESCALER_PRESCALER_DIV_16;
+  NRF_PWM1->COUNTERTOP = STIM_LED_TOP;
+  NRF_PWM1->LOOP = 0;
+  NRF_PWM1->DECODER = (PWM_DECODER_LOAD_Common << PWM_DECODER_LOAD_Pos) | (PWM_DECODER_MODE_RefreshCount << PWM_DECODER_MODE_Pos);
+  NRF_PWM1->SEQ[0].PTR = (uint32_t)stimLedSeq;
+  NRF_PWM1->SEQ[0].CNT = 1;
+  NRF_PWM1->SEQ[0].REFRESH = 0;
+  NRF_PWM1->SEQ[0].ENDDELAY = 0;
+  NRF_PWM1->ENABLE = 1;
+}
+void stimLedUpdate() {
+  uint16_t level = 0;
+  if (state == State::BURST || state == State::HOLD || state == State::LED) level = STIM_LED_TOP;
+  else if (state == State::GAP || state == State::SETTLING) level = STIM_LED_DIM;
+  if (state != State::STOP) stimLedTestOn = false;
+  if (stimLedTestOn) {                       // 'T': no current, just the LED pattern of one session
+    const uint32_t t = millis() - stimLedTestMs;
+    if (t >= 5UL * 1240UL) stimLedTestOn = false;
+    else level = (t % 1240UL) < 1000UL ? STIM_LED_DIM : STIM_LED_TOP;
+  }
+  if (level == stimLedLevel) return;
+  stimLedLevel = level;
+  stimLedSeq[0] = 0x8000 | level;            // bit 15: high for the first <level> counts -> duty = level / TOP
+  NRF_PWM1->EVENTS_SEQEND[0] = 0;
+  NRF_PWM1->TASKS_SEQSTART[0] = 1;           // the last value is held after the sequence ends
 }
 
 void setup() {
+  stimLedInit();
   static mbed::DigitalOut hwEn(digitalPinToPinName(PIN_ENABLE), 0);
   static mbed::DigitalOut hwSel1(digitalPinToPinName(PIN_SEL1), 0);
   static mbed::DigitalOut hwSel2(digitalPinToPinName(PIN_SEL2), 0);
@@ -629,7 +680,7 @@ void loop() {
     Serial.println("\n=== tES-YONSEI v2 ===");
     Serial.println(FW_ID);
     Serial.println(bleReady ? "BLE ready" : "BLE init FAILED (Serial control only)");
-    Serial.println("S stop | B<I x10>,<pw us>,<bursts>[,<period us>[,<gap ms>[,A|C]]] | H+<I> H-<I> | L<I>,<pw> | ?   e.g. B30,500,5");
+    Serial.println("S stop | B<I x10>,<pw us>,<bursts>[,<period us>[,<gap ms>[,A|C]]] | H+<I> H-<I> | L<I>,<pw> | T | ?   e.g. B30,500,5");
     Serial.print("LED test max ");
     Serial.print(LED_CAP_X10 / 10.0f, 1);
     Serial.println(" mA on this board");

@@ -16,8 +16,16 @@ const MENU = [
   {id:'led', n:1, t:'LED Test'},
   {id:'scope', n:2, t:'Output Waveform Test'},
   {id:'pbs', n:3, t:'PBS Test'},
-  {id:'safe', n:4, t:'Battery Test'}
+  {id:'safe', n:4, t:'Battery Test'},
+  {id:'trig', n:5, t:'Trigger LED Test'}
 ];
+const TRIG_MS = 5*1240;   // firmware 'T': dim 1 s + bright 240 ms, 5 times
+let trigUntil = 0;
+function trigTest(){
+  if(run || !B.connected || Date.now()<trigUntil) return;
+  send('T').then(()=>{ trigUntil = Date.now()+TRIG_MS; addLog('chk',{id:'TRIG', cond:'D1 LED · 출력 없음', res:'na'}); render();
+    setTimeout(render, TRIG_MS+50); }).catch(()=>toast('명령을 보내지 못했어요'));
+}
 const SWEEP = {C:{steps:[0.5,1.0,1.5,2.0,2.5,3.0].map(i=>({I:i,pw:500}))}, P:{steps:[100,200,300,400,500].map(w=>({I:3.0,pw:w}))}};
 const GRID_I = [0.5,1.0,1.5,2.0,2.5,3.0], GRID_PW = [100,200,300,400,500];
 const E = {sweep:'G', step:0, done:{C:[],P:[],G:[]}, hist:[], mcount:0, man:null, rat:null, el:null, edit:null, gi:5, gp:4};
@@ -218,10 +226,18 @@ function miniWave(I, pw){
   return `<svg class="mini" viewBox="0 0 186 68" role="img" aria-label="파형"><line x1="0" y1="${y}" x2="186" y2="${y}" stroke="var(--grid)" stroke-dasharray="3 3"/>`+
     `<path d="${d} L186,${y}" fill="none" stroke="var(--wave)" stroke-width="2"/><text x="186" y="66" text-anchor="end">1.2 ms 주기</text></svg>`;
 }
+/* Target current of the running output (mA). LED test asks 10 mA, capped by the board's R_sense (ref max 2.9 V). */
+function runTargetMA(){
+  if(!run) return null;
+  if(run.kind==='led') return Math.min(10, Math.floor(2.9/R_SENSE*10000)/10);
+  if(run.kind==='bat') return 3.0;
+  return run.I;
+}
 function measTag(){
   if(B.pct==null) return '';
-  const g=grade(B.pct);
-  return `<span class="meas"><i style="background:${LAMP[g]}"></i>실제 전류 ${GTXT[g]}${g==='ok'?'':' · '+B.pct+' %'}</span>`;
+  const g=grade(B.pct), t=runTargetMA();
+  const mA = t==null ? '' : ` · <b>${(B.pct*t/100).toFixed(2)} mA</b>`;
+  return `<span class="meas"><i style="background:${LAMP[g]}"></i>실제 전류 ${GTXT[g]}${mA} (${B.pct} %)</span>`;
 }
 function progress(){
   if(!run) return '';
@@ -314,6 +330,12 @@ function render(){
     m.innerHTML = head('4 · Battery Test') +
       `<div class="readout"><span>지금 배터리 <b>${fmtV(B.bat)}</b></span><span>3.0 mA · 500 µs · 1 session × ${BAT_RUNS}</span></div>` +
       progress() + runBtn(`하루치 반복 시작 (1 session × ${BAT_RUNS})`) + logBlock('chk');
+  } else if(S.screen==='trig'){
+    const busy = Date.now()<trigUntil;
+    m.innerHTML = head('5 · Trigger LED Test') +
+      `<div class="readout"><span>XIAO D1 표시 LED만 켜요 · <b>전극으로 전류는 안 나가요</b></span><span>1 session 모양: 어둡게 1 s → 밝게 0.24 s, 5번 (약 6 s)</span><span>실제 자극 때: burst 중 밝게 · burst 사이 어둡게 · STOP이면 꺼짐</span></div>` +
+      (busy?`<div class="prog"><div class="lbl">D1 LED 깜빡이는 중…</div></div>`:'') +
+      `<button type="button" class="btn" id="trig" ${busy||run||!B.connected?'disabled':''}>${busy?'깜빡이는 중…':'LED 깜빡이기 (약 6 s)'}</button>` + logBlock('chk');
   }
 }
 
@@ -410,6 +432,7 @@ document.addEventListener('click', e=>{
   if(T('[data-mcancel]')){ E.man=null; render(); return; }
   if(T('[data-mok]')){ applyManual(); E.man=null; E.sweep='M'; render(); return; }
   if(T('#run')) startRun();
+  if(T('#trig')) trigTest();
 });
 document.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.id==='numin') document.querySelector('[data-editok]').click(); });
 $('stop').addEventListener('click', stopNow);
@@ -428,6 +451,7 @@ class SimBoard {
     if(c==='?'){ this.emit(); return; }
     if(c==='S'||c==='0'){ this.stop('U'); return; }
     if(this.st!=='0'){ this.stop('E'); return; }
+    if(c==='T') return;   // trigger-LED test: no output
     this.pct=null; this.burst=0; this.pulse=0; this.t=0;
     if(c==='B'){ const f=t.slice(1).split(','), n=+f[2], v=+f[3]; this.n=n; this.gap = !v ? 3000 : v<=30 ? v*1000 : (+f[4]||3000); this.mode='B'; }
     else if(c==='H'){ this.mode='H'; }
