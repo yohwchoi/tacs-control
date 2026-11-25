@@ -63,6 +63,8 @@
  *   STOP opens the TMUX switches (EN=0). It does NOT turn off the boost rail.
  *
  * Pins: reference PWM = D2, EN = D4, SEL1 = D5, SEL2 = D3, V_sense = D0 (AIN0), battery = P0.31 (AIN7, enable P0.14 low)
+ *       sync LED = D1 (P0.03, high drive): HIGH exactly when EN is HIGH (each burst, HOLD, LED test).
+ *       For the camera: D1 -> 150 ohm -> red LED (+ long leg) ... LED (- short leg) -> GND, ~8 mA.
  * Resources: PWM2, TIMER3, TIMER4, GPIOTE ch 6-7, PPI ch 16-19, SAADC (no analogRead() anywhere).
  */
 
@@ -85,6 +87,7 @@ constexpr pin_size_t PIN_REFERENCE = D2;
 constexpr pin_size_t PIN_ENABLE    = D4;
 constexpr pin_size_t PIN_SEL1      = D5;
 constexpr pin_size_t PIN_SEL2      = D3;
+constexpr pin_size_t PIN_SYNC      = D1;      // sync LED for video: follows EN
 
 constexpr float    LOGIC_HIGH_V    = 3.3f;
 constexpr uint16_t PWM_TOP         = 4096;
@@ -141,6 +144,12 @@ enum class State { STOP, SETTLING, BURST, GAP, HOLD, LED };
 enum class Shape { BIPHASIC, BIPHASIC_A, MONO_CATH, MONO_ANOD };   // BIPHASIC = cathodic first, BIPHASIC_A = anodic first
 
 mbed::DigitalOut *enOut = nullptr;
+uint32_t syncMask = 0;                       // P0 bit of the sync LED pin (D1 = P0.03)
+// EN and the sync LED always change together, so the LED shows exactly when output is enabled.
+void enWrite(int v) {
+  enOut->write(v);
+  if (v) NRF_P0->OUTSET = syncMask; else NRF_P0->OUTCLR = syncMask;
+}
 mbed::DigitalOut *sel1Out = nullptr;
 mbed::DigitalOut *sel2Out = nullptr;
 static uint16_t refSeq[1] = { 0x8000 };
@@ -379,7 +388,7 @@ void trainStart(Shape shape, uint16_t nPulses) {
   saadcStartBuffer(senseBuf, nPulses <= 256 ? nPulses : 256);
 
   NRF_PPI->CHENSET = mask;
-  enOut->write(1);                           // REST: both electrodes on the sink, 0 V between them
+  enWrite(1);                           // REST: both electrodes on the sink, 0 V between them
   trainRunning = true;
   PULSE_TIMER->TASKS_START = 1;
 }
@@ -413,7 +422,7 @@ void noteWorst(int16_t p) {
 
 /* ---------- states ---------- */
 void stopAll(char reason) {
-  enOut->write(0);
+  enWrite(0);
   if (trainRunning) noteWorst(trainFinish());
   sel1Out->write(0);
   sel2Out->write(0);
@@ -426,7 +435,7 @@ void stopAll(char reason) {
 }
 
 void startSettling(State next) {
-  enOut->write(0);
+  enWrite(0);
   refWriteCode(refCode());
   worstPct = -1;
   burstNo = 0;
@@ -456,7 +465,7 @@ void beginHold() {
   holdSum = 0; holdN = 0; lastHoldSampleMs = millis();
   sel1Out->write(holdAnodic ? 1 : 0);
   sel2Out->write(holdAnodic ? 1 : 0);
-  enOut->write(1);
+  enWrite(1);
   sendStatus();
 }
 
@@ -544,7 +553,7 @@ void updateState() {
   if (state == State::SETTLING && elapsed >= SETTLE_MS) { enterAfterSettle(); return; }
 
   if (state == State::BURST && trainDone()) {
-    enOut->write(0);
+    enWrite(0);
     noteWorst(trainFinish());
     if (burstNo >= nBursts) { stopAll('F'); return; }
     state = State::GAP;
@@ -561,7 +570,7 @@ void updateState() {
 
   if (state == State::HOLD) {
     if (elapsed >= HOLD_MAX_MS) {
-      enOut->write(0);
+      enWrite(0);
       stopAll('T');
       return;
     }
@@ -585,6 +594,14 @@ void setup() {
   static mbed::DigitalOut hwSel1(digitalPinToPinName(PIN_SEL1), 0);
   static mbed::DigitalOut hwSel2(digitalPinToPinName(PIN_SEL2), 0);
   enOut = &hwEn;
+  {                                          // sync LED pin: output, high drive (~8 mA into a red LED), starts LOW
+    const uint32_t pin = nrfPin(PIN_SYNC) & 0x1F;
+    syncMask = 1UL << pin;
+    NRF_P0->OUTCLR = syncMask;
+    NRF_P0->PIN_CNF[pin] = (GPIO_PIN_CNF_DIR_Output << GPIO_PIN_CNF_DIR_Pos)
+                         | (GPIO_PIN_CNF_INPUT_Disconnect << GPIO_PIN_CNF_INPUT_Pos)
+                         | (GPIO_PIN_CNF_DRIVE_H0H1 << GPIO_PIN_CNF_DRIVE_Pos);
+  }
   sel1Out = &hwSel1;
   sel2Out = &hwSel2;
   refInit();
