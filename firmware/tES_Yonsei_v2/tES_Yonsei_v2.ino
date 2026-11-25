@@ -57,7 +57,9 @@
  *   pulse : pulses done in this burst
  *   pct   : real current / set current in %, worst burst of this run ('-' = no measurement yet)
  *   bat   : battery voltage x100 (e.g. 392 = 3.92 V), read while no burst is running
- *   reason: when stopped U user, F finished, T timeout, D BLE disconnect, P power-on, E bad command; else -
+ *   reason: when stopped U user, F finished, T timeout, D BLE disconnect, P power-on, E bad command
+ *           while running: latest measured current in 0.01 mA (e.g. 294 = 2.94 mA; last burst, LED half or
+ *           HOLD running average), '-' until the first measurement or without the R_sense->D0 jumper
  *
  * Safety: boot = STOP, BLE disconnect = STOP, max 3.0 mA, HOLD 30 s, LED 120 s, bad command = STOP.
  *   STOP opens the TMUX switches (EN=0). It does NOT turn off the boost rail.
@@ -160,6 +162,7 @@ uint8_t burstNo = 0;          // 1-based while running
 uint32_t stateStartMs = 0;
 uint32_t runStartMs = 0;
 int16_t worstPct = -1;        // -1 = none
+int16_t lastMA100 = -1;       // latest measured current in 0.01 mA (last burst / LED half / HOLD average), -1 = none
 uint16_t batX100 = 0;
 char stopReason = 'P';
 bool bleReady = false;
@@ -260,6 +263,8 @@ int16_t saadcReadOnce(uint8_t ain) {          // blocking, ~50 us; only while no
 float rawToV(int32_t raw) { return raw * SAADC_FULL_V / 4096.0f; }
 int16_t pctFromRaw(float rawAvg) {
   const float mA = rawToV(rawAvg) / R_SENSE_OHM * 1000.0f;
+  int m = (int)(mA * 100.0f + 0.5f);
+  lastMA100 = (int16_t)(m < 0 ? 0 : (m > 999 ? 999 : m));   // 3 digits max so the status fits in 20 bytes
   int p = (int)(mA / targetMA() * 100.0f + 0.5f);
   if (p < 0) p = 0;
   if (p > 199) p = 199;
@@ -293,9 +298,14 @@ uint16_t pulsesDone() {
 void sendStatus() {
   char pct[5] = "-";
   if (worstPct >= 0) snprintf(pct, sizeof(pct), "%d", worstPct);
+  // Last field: stop reason (letter) when stopped; while running, the latest measured current
+  // in 0.01 mA (digits, e.g. 294 = 2.94 mA) or '-' if nothing measured yet. Max 19 chars.
+  char last[5] = "-";
+  if (state == State::STOP) { last[0] = stopReason; last[1] = 0; }
+  else if (lastMA100 >= 0 && HAS_SENSE_JUMPER) snprintf(last, sizeof(last), "%d", lastMA100);
   char buf[24];
-  snprintf(buf, sizeof(buf), "%c,%u,%u,%s,%u,%c", stateChar(state), (unsigned)burstNo,
-           (unsigned)pulsesDone(), pct, (unsigned)batX100, state == State::STOP ? stopReason : '-');
+  snprintf(buf, sizeof(buf), "%c,%u,%u,%s,%u,%s", stateChar(state), (unsigned)burstNo,
+           (unsigned)pulsesDone(), pct, (unsigned)batX100, last);
   if (bleReady) statusChar.writeValue(buf);
   Serial.print("[status] ");
   Serial.println(buf);
@@ -429,6 +439,7 @@ void startSettling(State next) {
   enOut->write(0);
   refWriteCode(refCode());
   worstPct = -1;
+  lastMA100 = -1;
   burstNo = 0;
   afterSettle = next;
   state = State::SETTLING;
