@@ -94,6 +94,8 @@ function onStatusText(t){
   B.reason = reason||'-';
   B.lastMs = Date.now();
   if(run){
+    if(st!=='0' && st!=='W' && !run.t0) run.t0 = Date.now();          // output really started (after settling)
+    if(st==='B' && (prev!=='B' || B.burst!==run.lastB)){ run.bt.push(Date.now()); run.lastB=B.burst; }   // each burst onset
     if(st!=='0') run.started = true;
     if(st==='0' && !run.started && reason==='E'){ finishRun('E'); render(); return; }
     if(st==='0' && run.started && prev!=='0'){
@@ -116,7 +118,8 @@ const LOG_KEY = 'tes-yonsei-log-v1';
 let LOG = {chk:{view:[],all:[]}, exp:{view:[],all:[]}};
 try{ const v=JSON.parse(localStorage.getItem(LOG_KEY)||'null'); if(v&&v.chk&&v.exp) LOG=v; }catch(e){}
 function saveLog(){ try{ localStorage.setItem(LOG_KEY, JSON.stringify(LOG)); }catch(e){} }
-function nowT(){ const d=new Date(); return [d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':'); }
+function nowT(ms){ const d=ms?new Date(ms):new Date(); return [d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>String(x).padStart(2,'0')).join(':'); }
+function nowTms(ms){ return nowT(ms)+'.'+String(new Date(ms).getMilliseconds()).padStart(3,'0'); }   // HH:MM:SS.mmm (phone clock)
 function addLog(k, r){ r.t=nowT(); r.d=new Date().toISOString(); r.board=B.board; LOG[k].view.push(r); LOG[k].all.push(r); saveLog(); }
 
 /* ---------------- runs ---------------- */
@@ -133,7 +136,7 @@ function startRun(){
   else if(S.screen==='pbs'){ cmd=bArgs(i10,S.pw,5); }
   else if(S.screen==='safe'){ cmd=bArgs(30,500,5); kind='bat'; sessions=BAT_RUNS; }
   else if(S.screen==='exp'){ cmd=bArgs(i10,S.pw,5); }
-  run = {kind, screen:S.screen, cmd, bursts, sessions, done:0, started:false, worst:null,
+  run = {kind, screen:S.screen, cmd, bursts, sessions, done:0, started:false, worst:null, t0:null, bt:[], lastB:0,
          id: S.screen==='exp' ? expId() : {led:'LED',scope:'WAVE',pbs:'PBS',safe:'BAT'}[S.screen],
          cond: cond(), batStart:B.bat, I:S.I, pw:S.pw, sweep:E.sweep, step:E.sweep==='G'?`${E.gi},${E.gp}`:E.step};
   send(cmd).catch(e=>{ toast('명령을 보내지 못했어요'); run=null; render(); });
@@ -147,7 +150,8 @@ function finishRun(reason){
   if(!r) return;
   const worst = worse(r.worst, B.pct);
   const completed = reason==='F' || (r.kind==='led' && reason==='U') || (r.kind==='hold' && (reason==='U'||reason==='T'));
-  const entry = {id:r.id, cond:r.cond, pct:worst};
+  const entry = {id:r.id, cond:r.cond, pct:worst, start:r.t0?nowTms(r.t0):null, bursts:r.bt.map(nowTms)};
+  if(r.screen==='exp'){ entry.rat=E.rat??null; entry.el=E.el?elTxt():null; }
   if(completed) entry.res = grade(worst);
   else entry.res = 'stp', entry.why = reason, entry.b = r.bursts===5 ? B.burst : null;
   if(r.kind==='bat'){ entry.cond = `${r.done+(reason==='F'?1:0)}/${r.sessions} · ${fmtV(r.batStart)}→${fmtV(B.bat)}`; }
@@ -259,7 +263,28 @@ function resTxt(r){
 }
 function rowHTML(r, full, n){
   if(r.sep) return `<span class="sep">${r.sep}</span>`;
-  return `<div>${full?`<span class="t">${n}</span>`:''}<span class="t">${full?r.t:r.t.slice(0,5)}</span><span>${r.id}</span><span>${r.cond}</span>${resTxt(r)}</div>`;
+  const t = r.start ? r.start.slice(0,8) : r.t;                  // start time (HH:MM:SS) when known
+  const bl = full && r.bursts && r.bursts.length ? `<span class="bt">burst ${r.bursts.map(x=>x.slice(0,8)).join(' · ')}${r.rat!=null?` · Rat ${r.rat}`:''}${r.el?` · ${r.el}`:''}</span>` : '';
+  return `<div>${full?`<span class="t">${n}</span>`:''}<span class="t">${full?t:t.slice(0,5)}</span><span>${r.id}</span><span>${r.cond}</span>${resTxt(r)}${bl}</div>`;
+}
+/* CSV of everything ever logged on this phone (Reset only hides rows on screen; LOG.all keeps them). */
+function saveCSV(k){
+  const q = x => x==null ? '' : /[",\n]/.test(String(x)) ? '"'+String(x).replace(/"/g,'""')+'"' : String(x);
+  const head = ['date','start','end','id','rat','electrode','condition','result','actual_pct','burst_starts','board','note'];
+  const rows = LOG[k].all.map(r => {
+    const d = r.d ? new Date(r.d) : null;
+    const date = d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : '';
+    if(r.sep) return [date,'',r.t,'','','','','','','','',r.sep];
+    const res = r.res==='stp' ? ({D:'disconnected',T:'timeout',E:'error'}[r.why]||'STOP')+(r.b?` ${r.b}/5`:'') : (r.res||'');
+    return [date, r.start||'', r.t, r.id, r.rat, r.el, r.cond, res, r.pct, (r.bursts||[]).join(' '), r.board, ''];
+  });
+  const csv = '\ufeff' + [head, ...rows].map(a => a.map(q).join(',')).join('\r\n');
+  const n = new Date(), stamp = `${n.getFullYear()}${String(n.getMonth()+1).padStart(2,'0')}${String(n.getDate()).padStart(2,'0')}_${nowT().replace(/:/g,'')}`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = `tES_${k==='exp'?'experiment':'check'}_log_${stamp}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  toast('CSV 저장했어요 (다운로드 폴더)');
 }
 function logBlock(k, nShow=3){
   const v=LOG[k].view, runs=v.filter(r=>!r.sep).length;
@@ -270,9 +295,9 @@ function logFull(m,k){
   const v=LOG[k].view; let n=v.filter(r=>!r.sep).length;
   const name = k==='exp'?'실험':'점검';
   m.innerHTML = `<button type="button" class="back" data-logclose>‹ ${name}</button>`+
-    `<div class="loghead"><h2>${name} Log · ${n}회</h2>${v.length?`<span class="acts"><button type="button" data-reset="${k}">Reset</button></span>`:''}</div>`+
+    `<div class="loghead"><h2>${name} Log · ${n}회</h2><span class="acts">${LOG[k].all.length?`<button type="button" data-csv="${k}">CSV 저장</button>`:''}${v.length?`<button type="button" data-reset="${k}">Reset</button>`:''}</span></div>`+
     `<div class="log full">${v.length?v.slice().reverse().map(r=>rowHTML(r,true,r.sep?'':n--)).join(''):'<span class="muted">없음</span>'}</div>` + progress() +
-    (S.confirm?`<div class="modal"><div class="box"><b>${name} Log를 지울까요?</b><div class="row2"><button type="button" class="btn ghost" data-resetno>취소</button><button type="button" class="btn" style="background:var(--stop)" data-resetyes="${k}">Reset</button></div></div></div>`:'');
+    (S.confirm?`<div class="modal"><div class="box"><b>${name} Log를 화면에서 지울까요?</b><div class="muted" style="font-size:13px;margin-top:6px">기록은 앱 안에 그대로 남아서 CSV 저장에는 모두 들어가요.</div><div class="row2"><button type="button" class="btn ghost" data-resetno>취소</button><button type="button" class="btn" style="background:var(--stop)" data-resetyes="${k}">Reset</button></div></div></div>`:'');
 }
 
 function renderStatus(){
@@ -409,6 +434,7 @@ document.addEventListener('click', e=>{
   if(T('[data-reset]')){ S.confirm=true; render(); return; }
   if(T('[data-resetno]')){ S.confirm=false; render(); return; }
   if(T('[data-resetyes]')){ S.confirm=false; const k=T('[data-resetyes]').dataset.resetyes; LOG[k].view=[]; LOG[k].all.push({sep:'(Reset)', t:nowT(), d:new Date().toISOString()}); saveLog(); render(); return; }
+  if(T('[data-csv]')){ saveCSV(T('[data-csv]').dataset.csv); return; }
   if(T('[data-logopen]')){ const k=T('[data-logopen]').dataset.logopen; if(LOG[k].view.length){ S.logOpen=k; render(); } return; }
   const go=T('[data-go]'); if(go){ if(run) return; S.logOpen=null; S.screen=go.dataset.go; if(S.screen==='led'){S.I=3.0; S.pw=500;} render(); return; }
   const c=T('.chip[data-k]'); if(c && !c.disabled){ const k=c.dataset.k, v=c.dataset.v; S[k]=isNaN(+v)?v:+v; render(); return; }
